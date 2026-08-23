@@ -1,0 +1,2 @@
+# Build-time only (not shipped to the browser):
+indic-transliteration>=2.3.82   # MIT — battle-tested scheme tables
