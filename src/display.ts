@@ -141,6 +141,9 @@ type Tokens = {
   deva: string[];
   speakers: boolean[];
   onWord?: (i: number, sp: HTMLElement) => void;
+  /** Work language tag ("pi"): tokens ship as IAST Latin and are shown
+   *  as-is — no IAST→Devanagari conversion, Devanagari row suppressed. */
+  lang?: string;
 };
 const registry = new Map<HTMLElement, Tokens>();
 
@@ -160,8 +163,11 @@ function rebuild(el: HTMLElement): void {
   const t = registry.get(el);
   if (!t) return;
   const prefs = load();
+  // Pali works render Roman-only regardless of script prefs (the tokens are
+  // already IAST; converting would fabricate Devanagari nobody asked for).
+  const forceIast = t.lang === "pi";
   el.replaceChildren();
-  el.classList.toggle("dual", prefs.iast && prefs.deva);
+  el.classList.toggle("dual", prefs.iast && prefs.deva && !forceIast);
   const mkSpan = (
     i: number,
     w: string,
@@ -177,7 +183,7 @@ function rebuild(el: HTMLElement): void {
       sp.classList.add("vk");
     }
     const targetScript = cls.includes("deva") ? "deva" : "iast";
-    sp.textContent = disp(w, targetScript);
+    sp.textContent = forceIast ? w : disp(w, targetScript);
     if (!speaker && t.onWord) {
       sp.addEventListener("click", () => t.onWord!(i, sp));
     }
@@ -190,7 +196,10 @@ function rebuild(el: HTMLElement): void {
   // Dual mode: grid-auto-flow:column + two template rows — appending
   // deva-then-iast per word fills each column top-to-bottom, keeping word
   // cells vertically aligned across both script lines. Single mode: one row.
-  const activeRows = rows.filter((r) => r.on);
+  let activeRows = forceIast
+    ? rows.filter((r) => r.cls.includes("iast"))
+    : rows.filter((r) => r.on);
+  if (!activeRows.length) activeRows = [rows[1]]; // pi + IAST pref off
   el.style.gridTemplateRows =
     `repeat(${activeRows.length}, auto)`;
   t.deva.forEach((_, i) => {

@@ -3,10 +3,18 @@
 // titles (stripAccents passes Devanagari through untouched, so both IAST
 // and Devanagari queries reach the same normalized titles). "/" focuses
 // the search box.
-import { loadCatalog, stripAccents, type CatalogAuthor } from "./api";
+// Two sections share this view: Sanskrit (root) and Pali (#/pali/). A
+// compact संस्कृत | पालि toggle next to the title switches between them;
+// each section lists only its own language's works.
+import {
+  catalogLang, loadCatalog, stripAccents, workRoute,
+  type CatalogAuthor, type CatalogWork,
+} from "./api";
 import { lexiconButton } from "./lexicon";
 import { themeControl } from "./theme";
 import { aboutLink } from "./about";
+
+export type HomeSection = "sa" | "pi";
 
 const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   const e = document.createElement(tag);
@@ -15,14 +23,39 @@ const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   return e;
 };
 
-export function renderHome(app: HTMLElement): void {
+/** Compact संस्कृत ⇄ पालि switch shown beside the site title. */
+function langToggle(paliActive: boolean): HTMLElement {
+  const nav = el("nav", "lang-toggle");
+  nav.setAttribute("aria-label", "Language section");
+  const mk = (href: string, label: string, active: boolean) => {
+    const a = el("a", active ? "lang-btn active" : "lang-btn",
+      label) as HTMLAnchorElement;
+    a.href = href;
+    if (active) a.setAttribute("aria-current", "page");
+    return a;
+  };
+  nav.appendChild(mk("#/", "संस्कृत", !paliActive));
+  nav.appendChild(mk("#/pali/", "पालि", paliActive));
+  return nav;
+}
+
+export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void {
+  const isPali = section === "pi";
   app.replaceChildren();
-  app.appendChild(el("h1", undefined, "Sanskrit Reader"));
+
+  // ---- header row: site title + language toggle ----
+  const head = el("div", "home-head");
+  head.appendChild(el("h1", undefined, isPali ? "Pali Reader" : "Sanskrit Reader"));
+  head.appendChild(langToggle(isPali));
+  app.appendChild(head);
   app.appendChild(
-    el("p", "subtitle",
-      "An interlinear reading environment for Sanskrit — every word " +
-      "carries its grammatical analysis and an English gloss, all " +
-      "static JSON."),
+    el("p", "subtitle", isPali
+      ? "An interlinear reading environment for the Pali Canon — " +
+        "Roman-script Pali with Sujato's English translation, " +
+        "segment-aligned, all static JSON."
+      : "An interlinear reading environment for Sanskrit — every word " +
+        "carries its grammatical analysis and an English gloss, all " +
+        "static JSON."),
   );
 
   // ---- prominent search box + header controls ----
@@ -44,7 +77,8 @@ export function renderHome(app: HTMLElement): void {
 
   // ---- muted start-here line (class kept: main.ts inserts the
   // "Continue reading" section before .starters) ----
-  app.appendChild(el("p", "starters", "Start with the Bhagavad Gītā."));
+  app.appendChild(el("p", "starters",
+    isPali ? "Start with the Dhammapada." : "Start with the Bhagavad Gītā."));
 
   // "/" focuses search (until the home view is torn down)
   const onKey = (e: KeyboardEvent): void => {
@@ -78,19 +112,29 @@ export function renderHome(app: HTMLElement): void {
   footer.appendChild(aboutLink());
   app.appendChild(footer);
 
-  // ---- catalog ----
+  // ---- catalog: only this section's language reaches the page ----
   loadCatalog().then((catalog) => {
-    const authors = [...catalog.authors].sort((a, b) =>
-      a.name.localeCompare(b.name));
-    for (const author of authors) app.appendChild(authorBlock(author));
+    const inSection = (w: CatalogWork, a: CatalogAuthor): boolean =>
+      isPali ? catalogLang(w, a) === "pi" : catalogLang(w, a) !== "pi";
+    const authors = [...catalog.authors]
+      .map((a) => ({
+        author: a,
+        works: a.works.filter((w) => inSection(w, a)),
+      }))
+      .filter((e) => e.works.length > 0)
+      .sort((a, b) => a.author.name.localeCompare(b.author.name));
+    for (const { author, works } of authors) {
+      app.appendChild(authorBlock(author, works));
+    }
 
-    // Start-here card: FIRST work in the catalog (Bhagavadgītā today).
+    // Start-here card: FIRST work in this section following catalog order
+    // (Bhagavadgītā on the Sanskrit home, Dhammapada under #/pali/).
     // Route built from the live id — no hardcoded slugs.
-    for (const author of catalog.authors) {
-      const work = author.works[0];
+    for (const a of catalog.authors) {
+      const work = a.works.find((w) => inSection(w, a));
       if (!work) continue;
       const card = el("a", "card") as HTMLAnchorElement;
-      card.href = `#/${work.id}`;
+      card.href = workRoute(work, a);
       card.dataset.startCard = "1";
       card.appendChild(el("div", "title", work.title));
       card.appendChild(
@@ -107,17 +151,20 @@ export function renderHome(app: HTMLElement): void {
       `Could not load catalog.json: ${e.message}`));
   });
 
-  /** One author section: heading + its work links. */
-  function authorBlock(author: CatalogAuthor): HTMLElement {
+  /** One author section: heading + its (already section-filtered) works. */
+  function authorBlock(
+    author: CatalogAuthor,
+    works: CatalogWork[],
+  ): HTMLElement {
     const block = el("section", "author-block");
     block.dataset.authorName = stripAccents(author.name);
     const head = el("h2", undefined, author.name);
     head.id = author.key;
     block.appendChild(head);
     const list = el("div", "work-list");
-    for (const w of sortedWorks(author)) {
+    for (const w of sortedWorks(works)) {
       const link = el("a", "work-link") as HTMLAnchorElement;
-      link.href = `#/${w.id}`;
+      link.href = workRoute(w, author);
       link.dataset.title = stripAccents(w.title);
       const t = el("span", "work-title", w.title);
       link.appendChild(t);
@@ -131,8 +178,8 @@ export function renderHome(app: HTMLElement): void {
   }
 
   /** Natural sort so multi-part works read in order. */
-  function sortedWorks(author: CatalogAuthor) {
-    return [...author.works].sort((a, b) =>
+  function sortedWorks(works: CatalogWork[]) {
+    return [...works].sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { numeric: true }));
   }
 

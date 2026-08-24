@@ -160,6 +160,36 @@ h1 {
   font-size: 1.65rem;
 }
 
+/* ---- home header row: title + संस्कृत | पालि section toggle ---- */
+.home-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.home-head h1 { margin: 0; }
+.lang-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
+}
+.lang-btn {
+  font-size: 0.88rem;
+  padding: 4px 12px;
+  color: var(--muted);
+  background: var(--surface);
+  white-space: nowrap;
+}
+.lang-btn + .lang-btn { border-left: 1px solid var(--border); }
+.lang-btn:hover { background: var(--surface-2); text-decoration: none; }
+.lang-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
 .subtitle { color: var(--muted); margin: 0 0 44px; max-width: 62ch; line-height: 1.65; }
 
 a { color: var(--accent); text-decoration: none; }

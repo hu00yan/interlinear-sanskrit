@@ -12,3 +12,7 @@ dist/
 
 # pali lane: bilara-data cache
 .cache-bilara/
+
+# local QA scratch
+test-results/
+qa-report/.probe*

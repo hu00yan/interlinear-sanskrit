@@ -16,11 +16,30 @@ export interface CatalogWork {
   license: string;
   files: string[];
   unitCount: number;
+  /** ISO 639 set tag; "pi" (Pali) routes under #/pali/ and skips the
+   *  Devanagari display pipeline. Absent = Sanskrit ("sa"). */
+  lang?: string;
 }
 export interface CatalogAuthor {
   name: string;
   key: string;
+  /** Author-level language default when individual works omit lang. */
+  lang?: string;
   works: CatalogWork[];
+}
+
+/** Effective catalog language of a work: work.lang, else author.lang,
+ *  else "sa". Drives home-section filtering and route prefixes. */
+export function catalogLang(
+  w: CatalogWork,
+  a?: CatalogAuthor,
+): string {
+  return w.lang ?? a?.lang ?? "sa";
+}
+
+/** Canonical hash route for a work: Pali works live under #/pali/. */
+export function workRoute(w: CatalogWork, a?: CatalogAuthor): string {
+  return catalogLang(w, a) === "pi" ? `#/pali/${w.id}` : `#/${w.id}`;
 }
 export interface Catalog {
   authors: CatalogAuthor[];

@@ -28,10 +28,16 @@ const el = (tag: string, cls?: string, text?: string): El => {
   return e;
 };
 
+/** Language tag of the most recently rendered view ("pi" for Pali).
+ *  Set per renderUnits call; consulted by primaryText so Pali words in
+ *  panels/cards stay Roman even when the Devanagari pref is on. */
+let viewLang: string | null = null;
+
 /** el() for user-facing Sanskrit strings: renders via the current PRIMARY
  *  script (Devanagari when on, else IAST). Static after insert — word lines
  *  are handled by the unit-scripts registry instead. */
 function primaryText(orig: string): string {
+  if (viewLang === "pi") return orig; // Pali: already IAST Latin, pass through
   // direction detected per token (Upaniṣads ship IAST sources)
   const target = scriptPrefs().deva ? "deva" : "iast";
   return disp(orig, target);
@@ -54,6 +60,9 @@ export interface RenderCtx {
   /** Author TLG id when known (reader routes). Gates speaker coloring to
    *  dialogue works — undefined (e.g. paste view) means never color. */
   authorKey?: string;
+  /** Work language tag ("pi" for Pali): Roman-script passthrough —
+   *  no Devanagari conversion in lemma/panel display either. */
+  lang?: string;
 }
 
 /* ---------------- parse ranking ---------------- */
@@ -391,6 +400,7 @@ export function renderUnits(
 ): void {
   resetExpansion(container);
   currentCtx = ctx;
+  viewLang = ctx.lang ?? null;
   units.forEach((unit, uIdx) => {
     const row = el("div", kind === "prose" ? "unit prose-unit" : "line");
     if (unit.ref) row.dataset.ref = unit.ref; // deep-link / resume target    // Deterministic header: ref + right-aligned grouped actions (TTS + AI)
@@ -422,6 +432,7 @@ const scripts = el("div", "unit-scripts greek-line");
     registerUnitScripts(scripts, {
       deva: unit.words.slice(),
       speakers,
+      lang: ctx.lang,
       onWord: (i, sp) => {
         const w = unit.words[i];
         openPanel(sp, w, ctx);

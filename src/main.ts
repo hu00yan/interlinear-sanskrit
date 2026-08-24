@@ -1,10 +1,12 @@
 // Hash router: '' → home (catalog), '#/<workId>?ref=' → reader (work ids are
 // globally unique in the catalog), '#/about' → about.
+// Pali works live under their own lower route: '#/pali/' (home) and
+// '#/pali/<workId>' (reader); legacy bare '#/pali-…' ids redirect there.
 // Legacy '#/tlgNNNN/<workId>' routes redirect silently to the new form.
 // best-effort onto catalog ids.
 import "./style.css";
 import {
-  loadCatalog, loadPart,
+  catalogLang, loadCatalog, loadPart, workRoute,
   type CatalogAuthor, type CatalogWork, type Unit,
 } from "./api";
 import {
@@ -55,6 +57,10 @@ const TLG_RE = /^tlg\d{4}$/;
 const BATCH_UNITS = 120; // units fetched per part top-up (render pages are smaller)
 const PAGE_SIZE = 30; // units rendered per page — keeps scroll manageable
 
+/** Top-level site section: Sanskrit (default, root routes) or Pali
+ *  (#/pali/ prefix). */
+type Section = "sa" | "pi";
+
 function go(hash: string): void {
   hidePanel();
   const route = hash.replace(/^#\/?/, "");
@@ -64,6 +70,13 @@ function go(hash: string): void {
   const refParam =
     queryPart ? new URLSearchParams(queryPart).get("ref") ?? undefined
               : undefined;
+  // Pali section: '#/pali/' home, '#/pali/<workId>' reader
+  if (routePart === "pali") return void goHome("pi");
+  if (routePart.startsWith("pali/")) {
+    const rest = routePart.slice("pali/".length);
+    if (!rest) return void goHome("pi");
+    return void openWork(rest, refParam, "pi");
+  }
   // modern route: single global-unique work id
   if (routePart && !routePart.includes("/") &&
       !TLG_RE.test(routePart)) {
@@ -107,19 +120,31 @@ async function resolveWork(
   return null;
 }
 
-async function openWork(workId: string, refParam?: string): Promise<void> {
+async function openWork(
+  workId: string,
+  refParam?: string,
+  section: Section = "sa",
+): Promise<void> {
   const found = await resolveWork(workId);
   if (!found) {
     app.replaceChildren(el("p", "crumbs", `Unknown work ${workId}.`));
     return;
   }
-  return openReader(found.author.key, found.work.id, refParam);
+  // Legacy bare-id route to a Pali work: canonical home is #/pali/<id>.
+  // (Preserves any ?ref= deep link across the redirect.)
+  if (section !== "pi" && catalogLang(found.work, found.author) === "pi") {
+    location.hash = workRoute(found.work) +
+      (refParam ? `?ref=${encodeURIComponent(refParam)}` : "");
+    return;
+  }
+  return openReader(found.author.key, found.work.id, refParam, section);
 }
 
 /* ---------------- home ---------------- */
 
-function goHome(): void {
-  renderHome(app);
+function goHome(section: Section = "sa"): void {
+  document.title = section === "pi" ? "Pali Reader" : "Sanskrit Reader";
+  renderHome(app, section);
   // "Continue reading" above the starter suggestions (home.ts not touched)
   const titles = new Map<string, string>();
   const sec = continueReadingSection(titles);
@@ -191,6 +216,7 @@ async function openReader(
   authorKey: string,
   workId: string,
   refParam?: string,
+  section: Section = "sa",
 ): Promise<void> {
   allUnits = [];
   app.replaceChildren();
@@ -214,7 +240,10 @@ async function openReader(
   }
 
   const controls = renderControls(`${author.name}, ${work.title}`,
-    () => (location.hash = ""));
+    () => (location.hash = section === "pi" ? "#/pali/" : ""));
+  document.title = section === "pi"
+    ? `${work.title} · Pali Reader`
+    : `${work.title} · Sanskrit Reader`;
   app.replaceChildren(controls.root);
 
   // translation toggle only when the catalog ships translations
@@ -273,7 +302,7 @@ async function openReader(
     buffer: [],
     kind: "verse",
     ctx: { morph: new Map(), gloss: new Map(), genre: genreFor(author.key),
-      authorKey: author.key },
+      authorKey: author.key, lang: catalogLang(work, author) },
     body,
     pager: { root: pagerRoot, info, prev, next, jump },
     pages: [],
