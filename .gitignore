@@ -3,3 +3,9 @@ dist/
 .cache-*/
 *.log
 .DS_Store
+.cache-dcs/
+.cache-rv/
+
+# trans-acquisition lane caches (explicit)
+.cache-trans-upan/
+.cache-trans-rv/
