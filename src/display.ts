@@ -1,5 +1,8 @@
 // Display-script preferences: TWO independent toggles (IAST / Devanagari),
-// persisted in localStorage under "interlinear-sanskrit.scripts".
+// Persisted in localStorage under "interlinear-sanskrit.display" as
+// {"iast":bool,"deva":bool}. Legacy values still honored: the old
+// single-toggle string ("iast"/"dev") and the transitional ".scripts"
+// object both map onto the new pair on first read.
 // Invariant: at least one script is always on — turning the last one off
 // auto-enables the other.
 //
@@ -21,8 +24,10 @@ export interface ScriptPrefs {
   deva: boolean;
 }
 
-const KEY = "interlinear-sanskrit.scripts";
-const LEGACY_KEY = "interlinear-sanskrit.display";
+const KEY = "interlinear-sanskrit.display";
+// transitional object form stored here before the key merge
+const LEGACY_SCRIPTS_KEY = "interlinear-sanskrit.scripts";
+const LEGACY_STRING_KEY = "interlinear-sanskrit.display.legacy-string";
 
 let cache: ScriptPrefs | null = null;
 const listeners = new Set<() => void>();
@@ -32,20 +37,37 @@ function load(): ScriptPrefs {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      const p = JSON.parse(raw);
-      const prefs = normalize({
-        iast: !!p.iast,
-        deva: !!p.deva,
-      });
-      cache = prefs;
-      return prefs;
+      try {
+        const p = JSON.parse(raw);
+        if (typeof p === "object" && p !== null &&
+            ("iast" in p || "deva" in p)) {
+          cache = normalize({ iast: !!p.iast, deva: !!p.deva });
+          return cache;
+        }
+      } catch { /* fall through to legacy shapes */ }
     }
-    // legacy single-toggle migration
-    const legacy = localStorage.getItem(LEGACY_KEY);
-    cache =
-      legacy === "dev" ? { iast: false, deva: true } :
-      legacy === "iast" ? { iast: true, deva: false } :
-      { iast: true, deva: false };
+    // transitional object form (pre-merge)
+    const scriptsRaw = localStorage.getItem(LEGACY_SCRIPTS_KEY);
+    if (scriptsRaw) {
+      try {
+        const p = JSON.parse(scriptsRaw);
+        cache = normalize({ iast: !!p.iast, deva: !!p.deva });
+        return cache;
+      } catch { /* ignore */ }
+    }
+    // legacy single-toggle STRING lived under this very key before the
+    // object format: "iast" -> {iast:on,deva:off}; "dev" -> inverse
+    const legacy = localStorage.getItem(KEY);
+    if (legacy === "dev") {
+      cache = { iast: false, deva: true };
+      return cache;
+    }
+    if (legacy === "iast") {
+      cache = { iast: true, deva: false };
+      return cache;
+    }
+    void LEGACY_STRING_KEY;
+    cache = { iast: true, deva: false };
     return cache;
   } catch {
     cache = { iast: true, deva: false };

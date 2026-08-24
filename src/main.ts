@@ -1,5 +1,6 @@
-// Hash router: '' → home (catalog), '#/<tlg>/<workId>' → reader,
-// '#/paste' → paste & parse. Legacy '#/<workId>/<book>' routes redirect
+// Hash router: '' → home (catalog), '#/<workId>?ref=' → reader (work ids are
+// globally unique in the catalog), '#/about' → about.
+// Legacy '#/tlgNNNN/<workId>' routes redirect silently to the new form.
 // best-effort onto catalog ids.
 import "./style.css";
 import {
@@ -59,19 +60,60 @@ function go(hash: string): void {
   const route = hash.replace(/^#\/?/, "");
   if (route === "about") return renderAbout(app);
   setUnitContext(null, null); // star/copy buttons only make sense in a reader
-  // deep links carry an optional ?ref= query: '#/tlg0059/ion?ref=1.42'
   const [routePart, queryPart] = route.split("?");
-  let refParam: string | undefined;
-  if (queryPart) {
-    refParam =
-      new URLSearchParams(queryPart).get("ref") ?? undefined;
+  const refParam =
+    queryPart ? new URLSearchParams(queryPart).get("ref") ?? undefined
+              : undefined;
+  // modern route: single global-unique work id
+  if (routePart && !routePart.includes("/") &&
+      !TLG_RE.test(routePart)) {
+    return void openWork(routePart, refParam);
   }
-  const m = routePart.match(/^([^/]+)\/([^/]+)$/);
-  if (m) {
-    if (TLG_RE.test(m[1])) return void openReader(m[1], m[2], refParam);
-    return void redirectLegacy(m[1], m[2]);
-  }
+  // legacy two-segment routes (#/tlgNNNN/<id> and Greek-era #/<x>/<y>)
+  const segs = routePart.split("/");
+  if (segs.length === 2) return void redirectLegacy(segs[0], segs[1]);
   void goHome();
+}
+
+/** Resolve a work id via the catalog; supports legacy tlg-prefixed pairs. */
+async function resolveWork(
+  first: string,
+  second?: string,
+): Promise<{ author: CatalogAuthor; work: CatalogWork } | null> {
+  try {
+    const catalog = await loadCatalog();
+    for (const author of catalog.authors) {
+      if (second !== undefined) {
+        if (author.key.toLowerCase() === first.toLowerCase()) {
+          const w = author.works.find(
+            (w) => w.id.toLowerCase() === second.toLowerCase());
+          if (w) return { author, work: w };
+        }
+      } else {
+        const w = author.works.find(
+          (w) => w.id.toLowerCase() === first.toLowerCase());
+        if (w) return { author, work: w };
+      }
+    }
+    // best-match fallback: unique work-id suffix/prefix match
+    for (const author of catalog.authors) {
+      const w = author.works.find((w) =>
+        second === undefined
+          ? w.id.toLowerCase().startsWith(first.toLowerCase())
+          : w.id.toLowerCase() === second.toLowerCase());
+      if (w) return { author, work: w };
+    }
+  } catch { /* catalog unavailable */ }
+  return null;
+}
+
+async function openWork(workId: string, refParam?: string): Promise<void> {
+  const found = await resolveWork(workId);
+  if (!found) {
+    app.replaceChildren(el("p", "crumbs", `Unknown work ${workId}.`));
+    return;
+  }
+  return openReader(found.author.key, found.work.id, refParam);
 }
 
 /* ---------------- home ---------------- */
@@ -93,22 +135,11 @@ function goHome(): void {
 }
 
 async function redirectLegacy(first: string, second: string): Promise<void> {
-  // e.g. '#/iliad/1' → '#/tlg0012/iliad'; book number is dropped.
-  try {
-    const catalog = await loadCatalog();
-    const want = first.toLowerCase();
-    for (const author of catalog.authors) {
-      const hit = author.works.find((w) => w.id.toLowerCase() === want);
-      if (hit) {
-        location.hash = `#/${author.tlg}/${hit.id}`;
-        return;
-      }
-    }
-  } catch {
-    /* fall through to home */
-  }
-  void second;
-  location.hash = "";
+  // Silent best-match: exact tlg+id pair, else bare id match, else home.
+  const found = await resolveWork(
+    TLG_RE.test(first) ? first : second ?? "",
+    TLG_RE.test(first) ? second : undefined);
+  location.hash = found ? `#/${found.work.id}` : "";
 }
 
 /* ---------------- reader ---------------- */
@@ -157,7 +188,7 @@ function updatePager(state: ReaderState): void {
 }
 
 async function openReader(
-  tlg: string,
+  authorKey: string,
   workId: string,
   refParam?: string,
 ): Promise<void> {
@@ -169,7 +200,7 @@ async function openReader(
   let work: CatalogWork | undefined;
   try {
     const catalog = await loadCatalog();
-    author = catalog.authors.find((a) => a.tlg === tlg);
+    author = catalog.authors.find((a) => a.key === authorKey);
     work = author?.works.find((w) => w.id === workId);
   } catch (e) {
     app.replaceChildren(el("p", "unparsed-note",
@@ -178,7 +209,7 @@ async function openReader(
   }
   if (!author || !work) {
     app.replaceChildren(el("p", "unparsed-note",
-      `Unknown work ${tlg}/${workId}.`));
+      `Unknown work ${authorKey}/${workId}.`));
     return;
   }
 
@@ -241,8 +272,8 @@ async function openReader(
     queue: [...work.files],
     buffer: [],
     kind: "verse",
-    ctx: { morph: new Map(), gloss: new Map(), genre: genreFor(author.tlg),
-      tlg: author.tlg },
+    ctx: { morph: new Map(), gloss: new Map(), genre: genreFor(author.key),
+      authorKey: author.key },
     body,
     pager: { root: pagerRoot, info, prev, next, jump },
     pages: [],
@@ -266,14 +297,14 @@ async function openReader(
   app.appendChild(pagerRoot);
   updatePager(state);
 
-  setUnitContext(tlg, workId); // per-unit ★ / copy-link buttons
+  setUnitContext(authorKey, workId); // per-unit ★ / copy-link buttons
 
   // resume: honor an explicit ?ref= deep link by paging forward to it
   if (refParam) {
     await jumpToRef(state, refParam);
   }
   // record position immediately so "Continue reading" has fresh data
-  saveRecent(tlg, workId,
+  saveRecent(authorKey, workId,
     state.body.querySelector<HTMLElement>("[data-ref]")?.dataset.ref ?? "");
 
   // track reading position on scroll (debounced; topmost visible unit wins)
@@ -281,11 +312,11 @@ async function openReader(
   const onScrollSave = (): void => {
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
-      if (!location.hash.startsWith(`#/${tlg}/${workId}`)) return;
+      if (!location.hash.startsWith(`#/${authorKey}/${workId}`)) return;
       const rows = state.body.querySelectorAll<HTMLElement>("[data-ref]");
       for (const r of Array.from(rows)) {
         if (r.getBoundingClientRect().bottom < 0) continue;
-        saveRecent(tlg, workId, r.dataset.ref!);
+        saveRecent(authorKey, workId, r.dataset.ref!);
         break;
       }
     }, 900);

@@ -1,5 +1,5 @@
 // Bookmarks & resume: pure localStorage under "greek-reader.bookmarks".
-//   auto:  one resume position per work (tlg/workId), updated on scroll/page
+//   auto:  one resume position per work (authorKey/workId), updated on scroll/page
 //          change by main.ts.
 //   stars: explicit per-unit bookmarks toggled from the unit header ★.
 // All DOM via textContent — never innerHTML.
@@ -15,7 +15,7 @@ const el = (tag: string, cls?: string, text?: string): El => {
 const KEY = "greek-reader.bookmarks";
 
 export interface Mark {
-  tlg: string;
+  authorKey: string;
   workId: string;
   ref: string;
   ts: number;
@@ -61,18 +61,18 @@ function save(): void {
   }
 }
 
-const kOf = (tlg: string, wid: string): string => `${tlg}/${wid}`;
+const kOf = (authorKey: string, wid: string): string => `${authorKey}/${wid}`;
 
 /** Save/refresh the resume position for one work. */
-export function saveRecent(tlg: string, workId: string, ref: string): void {
-  if (!ref || !tlg || !workId) return;
+export function saveRecent(authorKey: string, workId: string, ref: string): void {
+  if (!ref || !authorKey || !workId) return;
   const d = load();
-  d.auto[kOf(tlg, workId)] = { tlg, workId, ref, ts: Date.now() };
+  d.auto[kOf(authorKey, workId)] = { authorKey, workId, ref, ts: Date.now() };
   save();
 }
 
-export function getRecent(tlg: string, workId: string): Mark | null {
-  return load().auto[kOf(tlg, workId)] ?? null;
+export function getRecent(authorKey: string, workId: string): Mark | null {
+  return load().auto[kOf(authorKey, workId)] ?? null;
 }
 
 /** Up to `limit` most recent works (newest first). */
@@ -82,24 +82,24 @@ export function listRecent(limit = 4): Mark[] {
     .slice(0, limit);
 }
 
-export function isStarred(tlg: string, wid: string, ref: string): boolean {
+export function isStarred(authorKey: string, wid: string, ref: string): boolean {
   return load().stars.some(
-    (s) => s.tlg === tlg && s.workId === wid && s.ref === ref,
+    (s) => s.authorKey === authorKey && s.workId === wid && s.ref === ref,
   );
 }
 
 /** Toggle a unit star; returns the new state. */
-export function toggleStar(tlg: string, wid: string, ref: string): boolean {
+export function toggleStar(authorKey: string, wid: string, ref: string): boolean {
   const d = load();
   const i = d.stars.findIndex(
-    (s) => s.tlg === tlg && s.workId === wid && s.ref === ref,
+    (s) => s.authorKey === authorKey && s.workId === wid && s.ref === ref,
   );
   let now: boolean;
   if (i >= 0) {
     d.stars.splice(i, 1);
     now = false;
   } else {
-    d.stars.push({ tlg, workId: wid, ref, ts: Date.now() });
+    d.stars.push({ authorKey, workId: wid, ref, ts: Date.now() });
     now = true;
   }
   save();
@@ -126,16 +126,21 @@ export function importJSON(text: string): { added: number; bad: boolean } {
   let added = 0;
   if (parsed.auto && typeof parsed.auto === "object") {
     for (const [k, v] of Object.entries(parsed.auto)) {
-      if (!v?.tlg || !v?.workId || !v?.ref) continue;
-      if (!d.auto[k]) added += 1;
-      d.auto[k] = v;
+      const legacyAuthorKey = (v as unknown as { tlg?: string }).tlg ?? "";
+      if (!legacyAuthorKey && !v?.authorKey) continue;
+      const kAuthor = v.authorKey ?? legacyAuthorKey;
+      if (!d.auto[kAuthor]) added += 1;
+      d.auto[kAuthor] = { ...v, authorKey: kAuthor };
     }
   }
   if (Array.isArray(parsed.stars)) {
     for (const s of parsed.stars) {
-      if (!s?.tlg || !s?.workId || !s?.ref) continue;
-      if (!isStarred(s.tlg, s.workId, s.ref)) {
-        d.stars.push({ tlg: s.tlg, workId: s.workId, ref: s.ref, ts: s.ts ?? Date.now() });
+      const key = (s as unknown as { authorKey?: string }).authorKey ??
+        (s as unknown as { tlg?: string }).tlg ?? "";
+      if (!key || !s?.workId || !s?.ref) continue;
+      if (!isStarred(key, s.workId, s.ref)) {
+        d.stars.push({ authorKey: key, workId: s.workId,
+                       ref: s.ref, ts: s.ts ?? Date.now() });
         added += 1;
       }
     }
@@ -149,8 +154,8 @@ export function importJSON(text: string): { added: number; bad: boolean } {
 let ctxTlg: string | null = null;
 let ctxWid: string | null = null;
 
-export function setUnitContext(tlg: string | null, wid: string | null): void {
-  ctxTlg = tlg;
+export function setUnitContext(authorKey: string | null, wid: string | null): void {
+  ctxTlg = authorKey;
   ctxWid = wid;
 }
 
@@ -188,7 +193,7 @@ export function copyLinkButtonFor(ref: string): El | null {
     e.stopPropagation();
     const url =
       `${location.origin}${location.pathname}` +
-      `#/${ctxTlg}/${ctxWid}?ref=${encodeURIComponent(ref)}`;
+      `#/${ctxWid}?ref=${encodeURIComponent(ref)}`;
     const done = (): void => {
       b.textContent = "✓";
       window.setTimeout(() => {
@@ -240,7 +245,7 @@ export function continueReadingSection(titles: Map<string, string>): El {
   }
   for (const m of recents) {
     const a = el("a", "card cont-card") as HTMLAnchorElement;
-    a.href = `#/${m.tlg}/${m.workId}?ref=${encodeURIComponent(m.ref)}`;
+    a.href = `#/${m.workId}?ref=${encodeURIComponent(m.ref)}`;
     a.appendChild(el("div", "title", titles.get(m.workId) ?? m.workId));
     a.appendChild(el(
       "div",
@@ -275,7 +280,7 @@ export function openStarPanel(titles: Map<string, string>): void {
     for (const s of stars.slice(0, 100)) {
       const li = el("li");
       const a = el("a") as HTMLAnchorElement;
-      a.href = `#/${s.tlg}/${s.workId}?ref=${encodeURIComponent(s.ref)}`;
+      a.href = `#/${s.workId}?ref=${encodeURIComponent(s.ref)}`;
       a.appendChild(el("span", "hit-title", titles.get(s.workId) ?? s.workId));
       a.appendChild(document.createTextNode(` ${s.ref}`));
       li.appendChild(a);
@@ -283,7 +288,7 @@ export function openStarPanel(titles: Map<string, string>): void {
       rm.type = "button";
       rm.title = "Remove";
       rm.addEventListener("click", () => {
-        toggleStar(s.tlg, s.workId, s.ref);
+        toggleStar(s.authorKey, s.workId, s.ref);
         li.remove();
       });
       li.appendChild(rm);
