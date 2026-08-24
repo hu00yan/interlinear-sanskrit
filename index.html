@@ -6,7 +6,16 @@
     <title>Sanskrit Reader</title>
     <meta name="theme-color" content="#0e4a6b" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!-- Devanagari display face: used by BOTH scripts (fallback for IAST
+         diacritics when Gentium lacks a glyph; primary in Devanagari mode) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="app"></div>

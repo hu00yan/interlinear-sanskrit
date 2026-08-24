@@ -1,10 +1,24 @@
 // Shared interlinear rendering: Greek units (verse lines or prose chunks)
 // with per-word parse cards, controls bar, and the click-for-details panel.
-import { loadCatalog, loadGloss, loadMorph, stripAccents, type Gloss, type Parse, type Unit } from "./api";
+import { fetchJSON, loadCatalog, loadGloss, loadMorph, stripAccents, type Gloss, type Parse, type Unit } from "./api";
 import { applyClasses, attachChip, isKnown, markKnown, toolbarControls, unmarkKnown } from "./vocab";
 import { copyLinkButtonFor, openStarPanel, starButtonFor } from "./bookmarks";
 import { openLexicon, lexiconButton } from "./lexicon";
 import { themeControl } from "./theme";
+import { disp, registerUnitScripts, scriptPrefControls,
+  scriptPrefs } from "./display";
+import { devToIast, devToSlp1, iastToDev, iastToSlp1, slp1KeyVariants } from "./translit";
+
+const glossShards = new Map<string, Record<string, Gloss> | null>();
+async function loadGlossShard(letter: string):
+  Promise<Record<string, Gloss> | null> {
+  if (glossShards.has(letter)) return glossShards.get(letter)!;
+  const shard = await fetchJSON<Record<string, Gloss> | null>(
+    `data/gloss/${letter}.json`,
+  ).catch(() => null);
+  glossShards.set(letter, shard);
+  return shard;
+}
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -12,6 +26,18 @@ const el = (tag: string, cls?: string, text?: string): El => {
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text; // never innerHTML
   return e;
+};
+
+/** el() for user-facing Sanskrit strings: renders via the current PRIMARY
+ *  script (Devanagari when on, else IAST). Static after insert — word lines
+ *  are handled by the unit-scripts registry instead. */
+function primaryText(orig: string): string {
+  // direction detected per token (Upaniṣads ship IAST sources)
+  const target = scriptPrefs().deva ? "deva" : "iast";
+  return disp(orig, target);
+}
+const elDisp = (tag: string, cls: string | undefined, orig: string): El => {
+  return el(tag, cls, primaryText(orig));
 };
 
 export interface RenderCtx {
@@ -27,7 +53,7 @@ export interface RenderCtx {
   genre?: string;
   /** Author TLG id when known (reader routes). Gates speaker coloring to
    *  dialogue works — undefined (e.g. paste view) means never color. */
-  tlg?: string;
+  authorKey?: string;
 }
 
 /* ---------------- parse ranking ---------------- */
@@ -80,8 +106,8 @@ const GENRE_BY_TLG: Record<string, string> = {
 };
 
 /** Register for a catalog author; "" when neutral. */
-export function genreFor(tlg: string): string {
-  return GENRE_BY_TLG[tlg] ?? "";
+export function genreFor(authorKey: string): string {
+  return GENRE_BY_TLG[authorKey] ?? "";
 }
 
 /** Dialect tokens of a parse (x = dialects space-separated | stemtypes).
@@ -316,7 +342,7 @@ function candidateRow(
 ): El[] {
   const row = el("div", "pcard cand-row");
   const head = el("div", "cand-head");
-  head.appendChild(el("span", "lemma", p.l || "?"));
+  head.appendChild(elDisp("span", "lemma", p.l || "?"));
   for (const tok of diffTokens(group.map((g) => g.f),
     group.indexOf(p))) {
     head.appendChild(el("span", "diff-badge", tok));
@@ -332,7 +358,7 @@ function candidateRow(
 function parseCard(p: Parse, ctx: RenderCtx, col: El): void {
   const card = el("div", "pcard");
   const head = el("div", "cand-head");
-  head.appendChild(el("span", "lemma", p.l || "?"));
+  head.appendChild(elDisp("span", "lemma", p.l || "?"));
   card.appendChild(head);
   const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
   card.appendChild(el("div", "feats", feats));
@@ -385,58 +411,31 @@ export function renderUnits(
     head.appendChild(actions);
     row.appendChild(head);
 
-    const greek = el("div", "greek-line");
-    greek.setAttribute("lang", "grc");
-    const parseRow = el("div", "parse-row");
-
-    // unit-initial person name => speaker label (first 1-2 TitleCase pers words)
-    // Render speakerSpan as colored label with hashColor, EXCLUDE from parse lookup
+    // dual-script container: Devanagari line first (primary), optional IAST
+    // second; grid columns keep word cells aligned across both lines.
+    // "greek-line" kept as a legacy-compat hook: vocab dimming, translation
+// scroll-sync and postbuild tooling select on it.
+const scripts = el("div", "unit-scripts greek-line");
+    scripts.setAttribute("lang", "sa");
     const spkCount = speakerSpanCount(unit, ctx);
-    const speakerWords = unit.words.slice(0, spkCount);
-    const restWords = unit.words.slice(spkCount);
-    if (speakerWords.length) {
-      speakerWords.forEach((w, idx) => {
+    const speakers = unit.words.map((_, i) => i < spkCount);
+    registerUnitScripts(scripts, {
+      deva: unit.words.slice(),
+      speakers,
+      onWord: (i, sp) => {
+        const w = unit.words[i];
+        openPanel(sp, w, ctx);
         const parses = ctx.morph.get(stripAccents(w)) ?? [];
-        const hit = parses.find((p) => isPersonParse(p));
-        const canonical = stripAccents(hit?.l || w);
-        const col = hashColor(canonical);
-        // include `w` for compatibility with existing selector tests, but
-        // speaker is NOT given a parse card and is not interactive as normal word
-        const label = el("span", `w speaker spk-${col}`, w);
-        label.title = `speaker: ${hit?.l || w}`;
-        // distinguish from normal w: no click handler, no parse column
-        greek.appendChild(label);
-        if (idx < speakerWords.length - 1) greek.appendChild(document.createTextNode(" "));
-      });
-      if (restWords.length) greek.appendChild(document.createTextNode(" "));
-    }
-
-    restWords.forEach((w, i) => {
-      const parses = ctx.morph.get(stripAccents(w)) ?? [];
-      const span = el("span", "w", w);
-      span.dataset.stripped = stripAccents(w); // vocab book key
-      const col = parseCards(w, ctx);
-      const many = parses.length > 1;
-      span.addEventListener("click", () => {
-        // word click: full side panel (all analyses + LSJ) — acceptance
-        // behaviour — and, when several candidates exist, also expand the
-        // inline candidate list in place.
-        openPanel(span, w, ctx);
-        if (many) toggleExpanded(w, ctx);
-      });
-      // double-click keeps the full side panel too (no-op if already open)
-      span.addEventListener("dblclick", () => openPanel(span, w, ctx));
-      greek.appendChild(span);
-      if (i < restWords.length - 1) {
-        greek.appendChild(document.createTextNode(" "));
-      }
-      parseRow.appendChild(col);
+        if (parses.length > 1) toggleExpanded(w, ctx);
+      },
     });
+    row.appendChild(scripts);
 
-    row.appendChild(greek);
-
-
-    row.appendChild(parseRow);
+    const parseRow = el("div", "parse-row");
+    unit.words.forEach((w, i) => {
+      if (speakers[i]) return; // speaker labels get no parse column
+      parseRow.appendChild(parseCards(w, ctx));
+    });
     container.appendChild(row);
     registerForReflow(row);
   });
@@ -519,7 +518,7 @@ function isSpeakerWord(word: string): boolean {
 /** How many LEADING words are person names (cap 2). Genre-gated: coloring
  *  only happens for known dialogue works. */
 export function speakerSpanCount(unit: Unit, ctx: RenderCtx): number {
-  if (!ctx.tlg || !DIALOGUE_TLGS.has(ctx.tlg)) return 0;
+  if (!ctx.authorKey || !DIALOGUE_TLGS.has(ctx.authorKey)) return 0;
   const n = Math.min(2, unit.words.length);
   let count = 0;
   for (let i = 0; i < n; i++) {
@@ -805,8 +804,6 @@ export function renderControls(crumbsText: string, onBack: () => void): Controls
   starsBtn.addEventListener("click", () => openStarPanel(starTitles));
   bar.appendChild(starsBtn);
 
-  bar.appendChild(toolbarControls());
-  attachChip(bar);
 
   bar.appendChild(lexiconButton());
 
@@ -831,6 +828,9 @@ export function renderControls(crumbsText: string, onBack: () => void): Controls
   });
   bar.appendChild(minus);
   bar.appendChild(plus);
+
+  // display script: IAST <-> Devanagari (label names the other script)
+  bar.appendChild(scriptPrefControls());
 
   bar.appendChild(themeControl());
 
@@ -869,7 +869,7 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
   document.querySelectorAll(".w.active").forEach((n) => n.classList.remove("active"));
   span.classList.add("active");
 
-  body.appendChild(el("h2", undefined, word));
+  body.appendChild(elDisp("h2", undefined, word));
   const parses = ctx.morph.get(stripAccents(word)) ?? [];
 
   // vocabulary book: mark/unmark this form (stores stripped key + best lemma)
@@ -911,13 +911,13 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     const seenLemmas = new Set<string>();
     for (const parse of parses) {
       const entry = el("div", "entry");
-      entry.appendChild(el("span", "lemma", parse.l || "?"));
+      entry.appendChild(elDisp("span", "lemma", parse.l || "?"));
       const feats = [parse.p, parse.f, parse.x].filter(Boolean).join(" · ");
       const fEl = el("span", "feats", feats);
       entry.appendChild(fEl);
       const gl = ctx.gloss.get(stripAccents(parse.l));
       if (gl) {
-        entry.appendChild(el("div", "dict-gloss", `${gl.u}: ${gl.g}`));
+        entry.appendChild(elDisp("div", "dict-gloss", `${gl.u}: ${gl.g}`));
       }
       body.appendChild(entry);
       seenLemmas.add(stripAccents(parse.l));
@@ -934,7 +934,7 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     body.appendChild(el("h3", undefined, "LSJ"));
     for (const d of dictEntries) {
       const entry = el("div", "entry");
-      entry.appendChild(el("span", "lemma", d.u));
+      entry.appendChild(elDisp("span", "lemma", d.u));
       entry.appendChild(el("div", "dict-gloss", d.g));
       body.appendChild(entry);
     }
@@ -951,6 +951,61 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     }
   }
 
+  // Monier-Williams (SLP1-keyed gloss shards): keys from the Devanagari
+  // surface via devToSlp1, with IAST-derived and sibilant-mirrored variants,
+  // plus a longest-prefix (>=4) fallback. Section hidden when nothing hits.
+  if (word) {
+    const wantWord = word;
+    void (async () => {
+      const baseKeys = [devToSlp1(word), iastToSlp1(devToIast(word))]
+        .filter((k) => k && k.length >= 2);
+      const tried = new Set<string>();
+      let hit: { u: string; g: string } | null = null;
+      for (const base of baseKeys) {
+        for (const key of [base, ...slp1KeyVariants(base)]) {
+          if (tried.has(key)) continue;
+          tried.add(key);
+          for (const cut = 0; ;) {
+            const probe = key.slice(0, Math.max(4, key.length - cut));
+            const letter = probe[0];
+            if (!letter) break;
+            const shard = await loadGlossShard(letter);
+            const bucket = shard ?? {};
+            const exact = bucket[probe];
+            if (exact) {
+              hit = { u: exact.u ?? probe, g: exact.g ?? "" };
+              break;
+            }
+            // longest prefix >= 4 within this shard
+            const pref = Object.keys(bucket)
+              .filter((kk) => kk.startsWith(probe.slice(0, -0) ) || probe.startsWith(kk))
+              .sort((a, b) => b.length - a.length)
+              .find((kk) => probe.startsWith(kk) && kk.length >= 4);
+            if (pref) {
+              hit = { u: bucket[pref].u ?? pref, g: bucket[pref].g ?? "" };
+              break;
+            }
+            break; // only one probe length per variant; prefixes handled above
+          }
+          if (hit) break;
+        }
+        if (hit) break;
+      }
+      if (!hit || !panel || panel.classList.contains("hidden")) return;
+      if ((body.querySelector("h2")?.textContent ?? "") !== wantWord) return;
+      body.appendChild(el("h3", "mw-head", "Monier-Williams"));
+      const entryDiv = el("div", "entry mw-entry");
+      entryDiv.appendChild(el("span", "lemma", primaryText(hit.u)));
+      // skip OCR/parsing artifacts that reduced the sense to punctuation
+      if (/[^\u0900-\u097fA-Za-z]/.test(hit.g.replace(/\s/g, "")) &&
+          hit.g.replace(/[^A-Za-z\u0900-\u097f]/g, "").length >= 3) {
+        entryDiv.appendChild(el("div", "dict-gloss", hit.g));
+      }
+      body.appendChild(entryDiv);
+    })();
+  }
+
+  p.classList.remove("hidden");
   p.classList.remove("hidden");
   document.body.classList.add("panel-open"); // squeeze #app so controls stay clickable
 }

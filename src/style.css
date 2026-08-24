@@ -12,7 +12,7 @@
   /* typography */
   --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  --font-read: 'Gentium Plus', 'GFS Didot', Georgia, 'Times New Roman', serif;
+  --font-read: 'Gentium Plus', 'Noto Serif Devanagari', 'GFS Didot', Georgia, 'Times New Roman', serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --ui-size: 1rem;
   --greek-size: 1.35rem;
@@ -391,6 +391,19 @@ input:focus, textarea:focus, select:focus {
   border-top: none;
   padding-top: 2px;
 }
+
+/* ---- display script modes: IAST (default) ⇄ Devanagari ------------------
+   body.dev-script is set by src/display.ts. Devanagari matras (ी े ै …)
+   clip at compact leading — give the script ≥1.9 line-height; IAST keeps
+   the normal stack leading. */
+body.dev-script .greek-line,
+body.dev-script .prose-unit .greek-line,
+body.dev-script .vline .greek-line {
+  line-height: 1.9;
+}
+body.dev-script .lemma { line-height: 1.9; }
+/* toolbar toggle affordance while reading Devanagari */
+button.dev-active { font-weight: 600; }
 
 /* parse area separated by whitespace + scale, not a dashed rule */
 .parse-row {
@@ -1381,4 +1394,60 @@ a.text-hit:focus-visible {
 .yourdata-status {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+/* ---- dual-script display (display-round 2) ---- */
+.unit-scripts {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-template-rows: auto auto;
+  column-gap: 0.55em;
+  row-gap: 2px;
+  vertical-align: top;
+  max-width: 100%;
+}
+.unit-scripts:not(.dual) {
+  grid-template-rows: auto;
+}
+.unit-scripts .sline.iast-line.w,
+.unit-scripts .sline.iast-line {
+  font-size: 0.86em;
+  color: var(--muted);
+}
+.unit-scripts .w {
+  cursor: pointer;
+}
+.script-pref-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.script-pref-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.88rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.script-pref-controls input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.mw-head,
+.autenrieth-head {
+  font-variant: small-caps;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin: 14px 0 4px;
+}
+
+/* narrow screens: a wide dual-script unit scrolls inside itself instead of
+   blowing up the page layout */
+@media (max-width: 760px) {
+  .unit-scripts {
+    display: inline-grid;
+    grid-auto-flow: column;
+    overflow-x: auto;
+    max-width: 100%;
+  }
 }

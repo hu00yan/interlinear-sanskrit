@@ -19,7 +19,7 @@ export interface CatalogWork {
 }
 export interface CatalogAuthor {
   name: string;
-  tlg: string;
+  key: string;
   works: CatalogWork[];
 }
 export interface Catalog {
@@ -90,11 +90,27 @@ export function loadPart(relPath: string): Promise<WorkPart> {
  * combining marks, fold final sigma.
  */
 export function stripAccents(word: string): string {
+  // Sanskrit build: tokens are Devanagari; shard keys are exact surface forms
+  // (resolved via data/morph/_surface_index.json in loadMorph), so do NOT
+  // NFD-strip Devanagari — it would destroy matras.
+  if (/[\u0900-\u097f]/.test(word)) return word;
   const d = word.toLowerCase().normalize("NFD");
   const s = Array.from(d)
     .filter((c) => !isCombining(c))
     .join("");
   return s.replace(/ς/g, "σ");
+}
+
+// surface Devanagari token -> slp1 shard key (built by pipeline/build_morph.py)
+let surfaceIndex: Record<string, string> | null = null;
+async function surfaceKey(form: string): Promise<string | null> {
+  if (!/[\u0900-\u097f]/.test(form)) return stripAccents(form);
+  if (surfaceIndex === null) {
+    surfaceIndex = await fetchJSON<Record<string, string>>(
+      "data/morph/_surface_index.json",
+    ).catch(() => ({}));
+  }
+  return surfaceIndex[form] ?? null;
 }
 
 function isCombining(c: string): boolean {
@@ -152,8 +168,19 @@ async function loadShardMap<K, V>(
 
 /** Analyses for surface forms, keyed by accent-stripped form. */
 export async function loadMorph(forms: string[]): Promise<Map<string, Parse[]>> {
-  const stripped = Array.from(new Set(forms.map(stripAccents)));
-  return loadShardMap<never, Parse[]>(stripped, "data/morph", (s) => s);
+  await surfaceKey("प्रारम्भ"); // ensure the surface index is cached
+  const out = new Map<string, Parse[]>();
+  for (const form of new Set(forms)) {
+    const key = await surfaceKey(form);
+    if (!key) continue;
+    const l = key[0];
+    if (!l) continue;
+    const shard = await fetchJSON<Record<string, Parse[]> | null>(
+      `data/morph/${l}.json`,
+    ).catch(() => null);
+    if (shard?.[key]) out.set(form, shard[key]);
+  }
+  return out;
 }
 
 /** Dictionary entries for lemma headwords, keyed by accent-stripped lemma. */
