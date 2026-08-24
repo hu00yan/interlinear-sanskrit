@@ -1,0 +1,94 @@
+{
+ "authors": [
+  {
+   "name": "Aśvaghoṣa",
+   "key": "asvaghosa",
+   "works": [
+    {
+     "id": "buddhacarita",
+     "title": "Buddhacarita",
+     "urn": "urn:sanskrit:buddhacarita",
+     "kind": "prose",
+     "license": "GRETIL attribution",
+     "files": [
+      "texts/buddhist/buddhacarita-part01.json"
+     ],
+     "translation": null,
+     "unitCount": 1033,
+     "edition": "E.H. Johnston 1935 (DSBC input via GRETIL)"
+    }
+   ]
+  },
+  {
+   "name": "Anonymous",
+   "key": "anonymous",
+   "works": [
+    {
+     "id": "lalitavistara",
+     "title": "Lalitavistara",
+     "urn": "urn:sanskrit:lalitavistara",
+     "kind": "prose",
+     "license": "GRETIL attribution",
+     "files": [
+      "texts/buddhist/lalitavistara-part01.json"
+     ],
+     "translation": null,
+     "unitCount": 2571,
+     "edition": "P.L. Vaidya 1958, Mithila Institute"
+    },
+    {
+     "id": "sukhavativyuha",
+     "title": "Sukhāvatīvyūha (larger)",
+     "urn": "urn:sanskrit:sukhavativyuha",
+     "kind": "prose",
+     "license": "GRETIL attribution",
+     "files": [
+      "texts/buddhist/sukhavativyuha-part01.json"
+     ],
+     "translation": null,
+     "unitCount": 134,
+     "edition": "Yoshimichi Fujita input via GRETIL"
+    },
+    {
+     "id": "sukhavativyuha-smaller",
+     "title": "Sukhāvatīvyūha (smaller)",
+     "urn": "urn:sanskrit:sukhavativyuha-smaller",
+     "kind": "prose",
+     "license": "GRETIL attribution",
+     "files": [
+      "texts/buddhist/sukhavativyuha-smaller-part01.json"
+     ],
+     "translation": null,
+     "unitCount": 28,
+     "edition": "Yoshimichi Fujita input via GRETIL"
+    },
+    {
+     "id": "heart-sutra",
+     "title": "Prajñāpāramitāhṛdaya (Heart Sūtra)",
+     "urn": "urn:sanskrit:heart-sutra",
+     "kind": "prose",
+     "license": "GRETIL attribution",
+     "files": [
+      "texts/buddhist/heart-sutra-part01.json"
+     ],
+     "translation": null,
+     "unitCount": 8,
+     "edition": "GRETIL e-text (n.n.)"
+    },
+    {
+     "id": "diamond-sutra",
+     "title": "Vajracchedikā Prajñāpāramitā (Diamond Sūtra)",
+     "urn": "urn:sanskrit:diamond-sutra",
+     "kind": "prose",
+     "license": "GRETIL attribution",
+     "files": [
+      "texts/buddhist/diamond-sutra-part01.json"
+     ],
+     "translation": null,
+     "unitCount": 89,
+     "edition": "P.L. Vaidya 1961, Mahāyānasūtrasaṃgraha I, Mithila Institute"
+    }
+   ]
+  }
+ ]
+}

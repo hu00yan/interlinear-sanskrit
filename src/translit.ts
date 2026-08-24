@@ -308,6 +308,19 @@ export function devToSlp1(s: string): string {
   return iastToSlp1(devToIast(s));
 }
 
+/**
+ * Devanagari/Latin surface token -> SLP1 shard LOOKUP key (QA-LOCAL-1).
+ * The gloss shards are lowercase-SLP1-keyed ("darmakzetre", not
+ * "Darmakzetre"), while iastToSlp1 emits capitals for long vowels and
+ * aspirates — so proper-noun-ish display forms produced capital-initial
+ * probes that could never match. Normalize AFTER conversion, BEFORE any
+ * letter-shard selection. Display strings keep their original casing;
+ * only this lookup key lowercases.
+ */
+export function slp1KeyFor(s: string): string {
+  return iastToSlp1(devToIast(s)).toLowerCase();
+}
+
 /** Alternate shard keys for snapshots with the mirrored sibilant mapping. */
 export function slp1KeyVariants(key: string): string[] {
   const variants = new Set<string>([key]);

@@ -7,7 +7,7 @@ import { openLexicon, lexiconButton } from "./lexicon";
 import { themeControl } from "./theme";
 import { disp, registerUnitScripts, scriptPrefControls,
   scriptPrefs } from "./display";
-import { devToIast, devToSlp1, iastToDev, iastToSlp1, slp1KeyVariants } from "./translit";
+import { iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
 
 const glossShards = new Map<string, Record<string, Gloss> | null>();
 async function loadGlossShard(letter: string):
@@ -952,17 +952,21 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
   }
 
   // Monier-Williams (SLP1-keyed gloss shards): keys from the Devanagari
-  // surface via devToSlp1, with IAST-derived and sibilant-mirrored variants,
-  // plus a longest-prefix (>=4) fallback. Section hidden when nothing hits.
+  // surface via slp1KeyFor (lowercase-normalized AFTER conversion — shards
+  // are lowercase-keyed), with sibilant-mirrored variants (re-lowercased at
+  // this single shard-lookup point), plus a longest-prefix (>=4) fallback.
+  // Section hidden when nothing hits.
   if (word) {
     const wantWord = word;
     void (async () => {
-      const baseKeys = [devToSlp1(word), iastToSlp1(devToIast(word))]
+      const baseKeys = [slp1KeyFor(word)]
         .filter((k) => k && k.length >= 2);
       const tried = new Set<string>();
       let hit: { u: string; g: string } | null = null;
       for (const base of baseKeys) {
-        for (const key of [base, ...slp1KeyVariants(base)]) {
+        for (const key of [base, ...slp1KeyVariants(base)].map((k) =>
+          k.toLowerCase(),
+        )) {
           if (tried.has(key)) continue;
           tried.add(key);
           for (const cut = 0; ;) {

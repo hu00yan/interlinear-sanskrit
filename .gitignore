@@ -9,3 +9,6 @@ dist/
 # trans-acquisition lane caches (explicit)
 .cache-trans-upan/
 .cache-trans-rv/
+
+# pali lane: bilara-data cache
+.cache-bilara/
