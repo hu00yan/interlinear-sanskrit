@@ -1,0 +1,34 @@
+{
+ "workId": "heart-sutra",
+ "translator": "玄奘 (Xuanzang)",
+ "year": 649,
+ "license": "Public domain (大正藏 T251)",
+ "alignment": "full",
+ "note": "《般若波羅蜜多心經》T251 玄奘譯 (649 CE), source: zh.wikisource.org/wiki/般若波羅蜜多心經_(玄奘) (PD). Sentence-level match to the Sanskrit edition's 8 units. Refs 2 (opening homage oṃ namo bhagavatyai) and 8 (closing colophon samāptam) omitted — absent from T251 as transmitted; UI falls back per-unit.",
+ "units": [
+  {
+   "ref": "1",
+   "text": "般若波羅蜜多心經"
+  },
+  {
+   "ref": "3",
+   "text": "觀自在菩薩，行深般若波羅蜜多時，照見五蘊皆空，度一切苦厄。"
+  },
+  {
+   "ref": "4",
+   "text": "舍利子！色不異空，空不異色，色即是空，空即是色；受、想、行、識，亦復如是。"
+  },
+  {
+   "ref": "5",
+   "text": "舍利子！是諸法空相，不生不滅，不垢不淨，不增不減。是故空中無色，無受想行識；無眼耳鼻舌身意；無色聲香味觸法；無眼界，乃至無意識界；無無明，亦無無明盡，乃至無老死，亦無老死盡；無苦集滅道；無智，亦無得。"
+  },
+  {
+   "ref": "6",
+   "text": "以無所得故，菩提薩埵依般若波羅蜜多故，心無罣礙；無罣礙故，無有恐怖，遠離顛倒夢想，究竟涅槃。三世諸佛，依般若波羅蜜多故，得阿耨多羅三藐三菩提。"
+  },
+  {
+   "ref": "7",
+   "text": "故知般若波羅蜜多，是大神咒，是大明咒，是無上咒，是無等等咒，能除一切苦，真實不虛。故說般若波羅蜜多咒，即說咒曰：揭諦揭諦，波羅揭諦，波羅僧揭諦，菩提薩婆訶。"
+  }
+ ]
+}
