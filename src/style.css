@@ -1499,3 +1499,48 @@ a.text-hit:focus-visible {
 
 /* (The old ≤760px overflow-x containment hack for .unit-scripts is gone —
    cells wrap natively now, so no unit can blow past the viewport.) */
+
+/* ---- Chinese translation layer (英译 ⇄ 汉译) ------------------------------ */
+/* Segmented control reuses .theme-ctl geometry via the shared class; only the
+   inline zh line, its per-unit English-fallback variant and the credit are
+   new. Works without translationZh never get any of these nodes. */
+.tl-line {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", sans-serif;
+  font-size: calc(var(--greek-size) * 0.82);
+  font-weight: 400;
+  line-height: 1.9;          /* comfortable for hanzi */
+  letter-spacing: normal;    /* CJK-hostile tracking must not inherit */
+  text-transform: none;
+  color: var(--text);
+  margin-top: 10px;
+}
+.tl-line.tl-en-fallback {
+  font-family: var(--font-read);
+  font-size: calc(var(--greek-size) * 0.75);
+  line-height: 1.55;
+  color: var(--faint);
+}
+.tl-miss {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0 0.5em;
+  font-family: var(--font-ui);
+  font-size: 0.68rem;
+  line-height: 1.6;
+  letter-spacing: normal;
+  color: var(--muted);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  opacity: 0.7;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tl-credit {
+  margin: -14px 0 22px;      /* tucks under the controls bar's own margin */
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.tl-credit[hidden] { display: none; }
+.tl-credit.tl-missing { font-style: italic; }

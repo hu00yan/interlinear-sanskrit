@@ -22,6 +22,7 @@ import { renderHome } from "./home";
 import {
   continueReadingSection, getRecent, saveRecent, setUnitContext,
 } from "./bookmarks";
+import { setupTranslationLayer, type TlLayerHandle } from "./zh-layer";
 
 const app = document.getElementById("app") as HTMLElement;
 
@@ -193,6 +194,9 @@ interface ReaderState {
   renderedUnits: number;
   /** Set once the "no morph coverage" notice has been considered. */
   morphNoteDone?: boolean;
+  /** Chinese translation layer when this work ships translationZh
+   *  (null/absent otherwise — no DOM impact). */
+  tl?: TlLayerHandle | null;
 }
 
 const PAGE_UNITS = PAGE_SIZE;
@@ -313,6 +317,14 @@ async function openReader(
     renderedUnits: 0,
   };
   readerState = state;
+  // Chinese translation layer (英译⇄汉译 segmented control): appears ONLY when
+  // this catalog work carries translationZh — otherwise setupTranslationLayer
+  // returns null and the page renders exactly as before (regression-critical).
+  state.tl = setupTranslationLayer(work, {
+    controls: controls.root,
+    anchor: () => body,
+    getBody: () => state.body,
+  });
   prev.addEventListener("click", () => void turnPage(state, -1));
   next.addEventListener("click", () => void turnPage(state, +1));
   jump.addEventListener("keydown", (e) => {
@@ -421,6 +433,7 @@ async function loadNextPage(state: ReaderState): Promise<void> {
     allUnits.push(...batch);
     state.pages.push({ rows: batch.length });
     state.renderedUnits += batch.length;
+    void state.tl?.sync(); // paint/clear zh lines on freshly rendered rows
   } catch (e) {
     state.pager.info.textContent = `Load failed: ${(e as Error).message}`;
     state.atEnd = true;
