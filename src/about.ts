@@ -1,7 +1,7 @@
 // About page: data sources & licenses, references, tech stack, acknowledgments.
 // Built exclusively with textContent — no innerHTML anywhere.
 
-const REPO_URL = "https://github.com/hu00yan/interlinear-sanskrit";
+const REPO_URL = "https://github.com/hu00yan/interlinear-sanskrit";  // verified live
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
