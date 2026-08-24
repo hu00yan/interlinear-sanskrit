@@ -1173,6 +1173,18 @@ body.show-prosody .scansion {
   box-shadow: var(--shadow-md);
 }
 
+/* ---- morph coverage empty-state (reader) ---- */
+.morph-empty-note {
+  margin: 4px 0 28px;
+  padding: 10px 14px;
+  border: 1px solid var(--warm-border);
+  border-radius: var(--radius-m);
+  background: var(--warm-bg);
+  color: var(--warm);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
 /* ---- starter suggestions (home, under search) ---- */
 .starters {
   font-size: 0.92rem;
@@ -1282,8 +1294,11 @@ a.text-hit:focus-visible {
 }
 .vocab-group {
   display: inline-flex;
+  flex-wrap: wrap;        /* wrap instead of blowing past narrow viewports */
   align-items: center;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
 }
 .vocab-label {
   color: var(--faint);
@@ -1426,18 +1441,23 @@ a.text-hit:focus-visible {
   font-size: 0.85rem;
 }
 
-/* ---- dual-script display (display-round 2) ---- */
+/* ---- dual-script display (display-round 2, wrap fix) ----
+   Each token renders as a .wcell: an inline-flex COLUMN stacking that word's
+   script lines (Devanagari top, IAST below). Being inline-level, cells wrap
+   at the container edge like ordinary text — the unit always sizes to the
+   viewport. The old single column-flow inline-grid could never wrap and was
+   the root cause of page-width overflow. */
 .unit-scripts {
-  display: inline-grid;
-  grid-auto-flow: column;
-  grid-template-rows: auto auto;
-  column-gap: 0.55em;
-  row-gap: 2px;
-  vertical-align: top;
+  display: block;
   max-width: 100%;
 }
-.unit-scripts:not(.dual) {
-  grid-template-rows: auto;
+.unit-scripts .wcell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  vertical-align: top;
+  margin-right: 0.55em;
+  max-width: 100%;
 }
 .unit-scripts .sline.iast-line.w,
 .unit-scripts .sline.iast-line {
@@ -1446,6 +1466,12 @@ a.text-hit:focus-visible {
 }
 .unit-scripts .w {
   cursor: pointer;
+}
+/* A single token longer than the line box (long Sanskrit compounds on
+   phones) may not push the page wide: break inside the token as a last
+   resort. No effect while the token fits — normal words never split. */
+.unit-scripts .sline {
+  overflow-wrap: anywhere;
 }
 .script-pref-controls {
   display: inline-flex;
@@ -1471,13 +1497,5 @@ a.text-hit:focus-visible {
   margin: 14px 0 4px;
 }
 
-/* narrow screens: a wide dual-script unit scrolls inside itself instead of
-   blowing up the page layout */
-@media (max-width: 760px) {
-  .unit-scripts {
-    display: inline-grid;
-    grid-auto-flow: column;
-    overflow-x: auto;
-    max-width: 100%;
-  }
-}
+/* (The old ≤760px overflow-x containment hack for .unit-scripts is gone —
+   cells wrap natively now, so no unit can blow past the viewport.) */

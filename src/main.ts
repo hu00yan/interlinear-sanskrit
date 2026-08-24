@@ -191,6 +191,8 @@ interface ReaderState {
   busy: boolean;
   atEnd: boolean;
   renderedUnits: number;
+  /** Set once the "no morph coverage" notice has been considered. */
+  morphNoteDone?: boolean;
 }
 
 const PAGE_UNITS = PAGE_SIZE;
@@ -397,6 +399,22 @@ async function loadNextPage(state: ReaderState): Promise<void> {
     const batch = state.buffer.splice(0, PAGE_UNITS);
     const freshCtx = await prepare(batch);
     mergeCtx(state.ctx, freshCtx.morph, freshCtx.gloss);
+    // Morph coverage currently spans the Bhagavadgītā analysis only; other
+    // works would render mostly silent "—" columns. Say so once, explicitly,
+    // whenever fewer than half of this page's distinct forms have analyses.
+    if (!state.morphNoteDone) {
+      state.morphNoteDone = true;
+      const forms = new Set(batch.flatMap((u) => u.words));
+      const covered = [...forms]
+        .filter((f) => (freshCtx.morph.get(f)?.length ?? 0) > 0).length;
+      if (forms.size > 0 && covered / forms.size < 0.5) {
+        state.body.appendChild(el(
+          "div",
+          "morph-empty-note",
+          "本卷语法解析覆盖有限（现有完整解析仅覆盖《薄伽梵歌》，其余卷目陆续补充中），未解析的词以“—”标示。点击任意单词仍可查询词典。",
+        ));
+      }
+    }
     tallyLemmas(state.ctx, batch); // grow the work-view frequency signal
     renderUnits(state.body, batch, state.ctx, state.kind,
       state.renderedUnits);

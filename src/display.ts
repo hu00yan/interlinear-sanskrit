@@ -193,22 +193,27 @@ function rebuild(el: HTMLElement): void {
     { on: prefs.deva, cls: "sline deva-line" },
     { on: prefs.iast, cls: "sline iast-line" },
   ];
-  // Dual mode: grid-auto-flow:column + two template rows — appending
-  // deva-then-iast per word fills each column top-to-bottom, keeping word
-  // cells vertically aligned across both script lines. Single mode: one row.
+  // Dual mode: each token's cell stacks deva-then-iast, keeping both scripts
+  // vertically paired per word while the whole line wraps naturally.
+  // Single mode: one script line per cell.
   let activeRows = forceIast
     ? rows.filter((r) => r.cls.includes("iast"))
     : rows.filter((r) => r.on);
   if (!activeRows.length) activeRows = [rows[1]]; // pi + IAST pref off
-  el.style.gridTemplateRows =
-    `repeat(${activeRows.length}, auto)`;
+  // Per-token CELLS: one inline-flex column per word, stacking this token's
+  // active script lines (Devanagari above, IAST below). Cells flow inline
+  // and WRAP at the viewport edge like ordinary text. The previous layout
+  // (one big grid, grid-auto-flow:column) gave every unit a single
+  // unwrappable row of columns — long verses blew far past the window width.
   t.deva.forEach((_, i) => {
+    const cell = document.createElement("span");
+    cell.className = "wcell";
     for (const r of activeRows) {
-      el.appendChild(mkSpan(i, t.deva[i],
+      cell.appendChild(mkSpan(i, t.deva[i],
         r.cls.includes("deva") && t.speakers[i], `${r.cls} w`));
     }
+    el.appendChild(cell);
   });
-  el.style.setProperty("--cols", String(t.deva.length));
 }
 
 /* ---------------- toolbar controls ---------------- */

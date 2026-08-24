@@ -447,8 +447,13 @@ const scripts = el("div", "unit-scripts greek-line");
       if (speakers[i]) return; // speaker labels get no parse column
       parseRow.appendChild(parseCards(w, ctx));
     });
+    // Regression fix (3026b36 dropped this line): the parse cards were built
+    // but never attached — every line rendered with NO grammatical parsing.
+    row.appendChild(parseRow);
     container.appendChild(row);
-    registerForReflow(row);
+    // NOTE: no registerForReflow here. The vline splitter assumes flat .w
+    // spans in one wrapping line; unit-scripts stacks each token's scripts
+    // in a per-word cell, so splitting by offsetTop would scramble it.
   });
   applyClasses(); // vocab dimming + stats chip for the freshly rendered page
 }
