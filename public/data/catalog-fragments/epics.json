@@ -1,0 +1,31 @@
+{
+ "author": "Vālmīki / Vyāsa",
+ "works": [
+  {
+   "id": "ramayana",
+   "title": "Rāmāyaṇa",
+   "urn": "urn:sanskrit:ramayana",
+   "kind": "prose",
+   "license": "GRETIL attribution",
+   "files": [
+    "texts/epics/ramayana-part01.json"
+   ],
+   "translation": null,
+   "unitCount": 3860
+  },
+  {
+   "id": "mahabharata",
+   "title": "Mahābhārata",
+   "urn": "urn:sanskrit:mahabharata",
+   "kind": "prose",
+   "license": "GRETIL attribution",
+   "files": [
+    "texts/epics/mahabharata-part01.json",
+    "texts/epics/mahabharata-part02.json",
+    "texts/epics/mahabharata-part03.json"
+   ],
+   "translation": null,
+   "unitCount": 18418
+  }
+ ]
+}
