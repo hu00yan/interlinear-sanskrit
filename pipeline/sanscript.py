@@ -34,24 +34,34 @@ HK = "HK"  # derived flavor (sentinel; not an indic scheme)
 # Aspirates become digraphs (bha=bh), retroflex s becomes Sh, siva-sibilant
 # z, guttural nasal G, palatal nasal J, retroflex nasal N; vocalic r/l are
 # RRi/RRI/LRi/LRI independent and Ri/RI/LRi/LRI in matra position.
-_FWD_SINGLE = {
+#
+# Conversion is a position-by-position LONGEST-MATCH tokenization in both
+# directions. (The earlier str.replace chain was lossy: after dh->D it later
+# rewrote bare D->q, so dharma round-tripped to डर्म, and G->N fed the later
+# N->R rule, so aGka came back as अण्क.)
+_FWD = {
     "K": "kh", "G": "gh", "C": "ch", "J": "jh",
     "W": "Th", "Q": "Dh", "T": "th", "D": "dh", "P": "ph", "B": "bh",
-    "N": "G", "Y": "J", "R": "N", "S": "z", "z": "Sh",
+    "w": "T", "q": "D",          # retroflex stops keep their HK capitals
+    "N": "G", "Y": "J", "R": "N",  # nasals: SLP1 capitals -> HK guttural/palatal
+    "S": "z", "z": "Sh",         # siva-sibilant z, retroflex s Sh
 }
 _INIT = {"f": "RRi", "F": "RRI", "x": "LRi", "X": "LRI"}
 _MED = {"f": "Ri", "F": "RI", "x": "LRi", "X": "LRI"}
 
-_INV_ORDERED = [
-    ("kh", "K"), ("gh", "G"), ("ch", "C"), ("jh", "J"),
-    ("Th", "W"), ("Dh", "Q"), ("ph", "P"), ("dh", "D"),
-    ("Sh", "z"), ("bh", "B"),
+# HK -> SLP1, grouped by token length for longest-match lookup. Every forward
+# product has exactly one inverse here, so the mapping is bijective.
+_INV_BY_LEN: dict[int, dict[str, str]] = {3: {}, 2: {}, 1: {}}
+for _hk, _slp in [
     ("RRi", "f"), ("RRI", "F"), ("LRi", "x"), ("LRI", "X"),
+    ("kh", "K"), ("gh", "G"), ("ch", "C"), ("jh", "J"),
+    ("Th", "W"), ("Dh", "Q"), ("th", "T"), ("dh", "D"),
+    ("ph", "P"), ("bh", "B"), ("Sh", "z"),
     ("Ri", "f"), ("RI", "F"),
-    ("G", "N"), ("J", "Y"),
-    ("T", "w"), ("D", "q"), ("N", "R"),
+    ("T", "w"), ("D", "q"), ("G", "N"), ("J", "Y"), ("N", "R"),
     ("z", "S"),
-]
+]:
+    _INV_BY_LEN[len(_hk)][_hk] = _slp
 
 
 def _word_slp1_to_hk(w: str) -> str:
@@ -68,12 +78,10 @@ def _word_slp1_to_hk(w: str) -> str:
             out.append(_MED[ch])
             i += 1
             continue
-        if ch in _FWD_SINGLE:
-            out.append(_FWD_SINGLE[ch])
-            i += 1
-            first = False
-            continue
-        out.append(ch)
+        if ch in _FWD:
+            out.append(_FWD[ch])
+        else:
+            out.append(ch)
         i += 1
         first = False
     return "".join(out)
@@ -83,12 +91,24 @@ def _slp1_to_hk(s: str) -> str:
     return " ".join(_word_slp1_to_hk(w) for w in s.split(" "))
 
 
+def _hk_word_to_slp1(w: str) -> str:
+    out = []
+    i = 0
+    while i < len(w):
+        for n in (3, 2, 1):
+            tok = w[i:i + n]
+            if n in _INV_BY_LEN and tok in _INV_BY_LEN[n]:
+                out.append(_INV_BY_LEN[n][tok])
+                i += n
+                break
+        else:
+            out.append(w[i])
+            i += 1
+    return "".join(out)
+
+
 def _hk_to_slp1(s: str) -> str:
-    # sentinel protects forward-'Sh'(=retroflex s) from the late z->S rule
-    s = s.replace("Sh", "\x01")
-    for hk_tok, slp1_tok in _INV_ORDERED:
-        s = s.replace(hk_tok, slp1_tok)
-    return s.replace("\x01", "z")
+    return " ".join(_hk_word_to_slp1(w) for w in s.split(" "))
 
 
 def transliterate(text: str, frm: str, to: str) -> str:
@@ -132,6 +152,20 @@ _SELFTEST = [
      "k\u0101r\u1e63\u1e47i", "kArShNi", "kArzRi"),
 ]
 
+# Audit regression set: aspirated finals, j~n, guttural nasal, anusvara.
+# (iast, devanagari) — each must round-trip EXACTLY through every
+# DEVA -> X -> Y -> Z -> DEVA chain over {IAST, HK, SLP1}.
+_ROUNDTRIP = [
+    ("dharma", "\u0927\u0930\u094d\u092e"),                  # dharma (was डर्म)
+    ("yoga", "\u092f\u094b\u0917"),                          # yoga
+    ("k\u1e5b\u1e63\u1e47a",
+     "\u0915\u0943\u0937\u094d\u0923"),                      # kRSNa
+    ("j\u00f1\u0101na", "\u091c\u094d\u091e\u093e\u0928"),   # jJAna
+    ("a\u1e45ka", "\u0905\u0919\u094d\u0915"),               # aGka   (was अण्क)
+    ("sa\u1e43ny\u0101sa",
+     "\u0938\u0902\u0928\u094d\u092f\u093e\u0938"),          # saMnyAsa
+]
+
 
 def _selftest() -> int:
     fails = 0
@@ -152,6 +186,24 @@ def _selftest() -> int:
                 schemes[label], DEVA)
             if back != deva:
                 print(f"FAIL roundtrip via {label}: {deva} -> {back!r}")
+                fails += 1
+    # audit regressions: exact round-trip through every scheme order
+    import itertools
+    for iast, deva in _ROUNDTRIP:
+        if transliterate(deva, DEVA, IAST) != iast:
+            print(f"FAIL deva->IAST: {deva} "
+                  f"got={transliterate(deva, DEVA, IAST)!r} want={iast!r}")
+            fails += 1
+        for order in itertools.permutations(("IAST", "HK", "SLP1")):
+            cur, prev = deva, DEVA
+            for name in order:
+                sch = schemes[name]
+                cur = transliterate(cur, prev, sch)
+                prev = sch
+            back = transliterate(cur, prev, DEVA)
+            if back != deva:
+                print(f"FAIL chain DEVA->{'->'.join(order)}->DEVA: "
+                      f"{deva!r} came back {back!r}")
                 fails += 1
     specials = [
         ("\u0938\u0902", "anusvara"),
