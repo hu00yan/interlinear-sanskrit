@@ -419,14 +419,13 @@ function wasmMod(): Promise<WasmMod | null> {
   return wasmModPromise;
 }
 
-/* Facade-first with a direct-load fallback. The kit's static capability
- * probe (parser-wasm.ts PROBE_BYTES) mis-encodes its type section, so
- * WebAssembly.validate rejects it in EVERY runtime — including ones that
- * instantiate the real artifact fine — and initParser() resolves false
- * everywhere until that's fixed upstream. deepInit() therefore keeps a
- * private loader using the exact integration-guide §2 three-line pattern;
- * the facade path is still tried first and resumes automatically once the
- * probe is repaired. All failures resolve false / null — never throw. */
+/* Facade-first with a direct-load fallback (defense in depth). The kit's
+ * static capability probe (parser-wasm.ts PROBE_BYTES) used to mis-encode its
+ * type section and fail validate() everywhere; that probe is now FIXED (same
+ * corrected sequence as moonbit-samsaadhanii/web/main.js), so the facade path
+ * loads normally. This private loader stays as a belt-and-braces fallback in
+ * case the facade module fails to import/init for any other reason. All
+ * failures resolve false / null — never throw. */
 
 interface DeepExports {
   analyze_word(deva: string): string;

@@ -67,11 +67,19 @@ interface WasmExports {
 let exp: WasmExports | null = null;
 let initPromise: Promise<boolean> | null = null;
 
-// Magic-header module with GC-free func types, straight from integration-guide
-// §4: a cheap capability probe so we never download 1.4 MB on a runtime that
-// cannot instantiate the real thing anyway.
+// Magic-header module with GC-free func types: a cheap capability probe so we
+// never download 1.4 MB on a runtime that cannot instantiate the real thing
+// anyway. NOTE: integration-guide §4's published byte pattern is malformed
+// (section size/count off + functypes missing their result-vector prefixes),
+// so validate() rejected it in every engine; this is the corrected sequence —
+// byte-identical to the spec-derived probe verified in
+// moonbit-samsaadhanii/web/main.js wasmGcSupported() (validate true on Node 26).
 const PROBE_BYTES = new Uint8Array([
-  0, 97, 115, 109, 1, 0, 0, 0, 1, 13, 2, 96, 2, 127, 127, 96, 1, 127, 96, 0, 0,
+  0, 97, 115, 109, 1, 0, 0, 0,
+  1, 15, 3, // type section: size=15, count=3
+  0x60, 2, 0x7f, 0x7f, 1, 0x7f, // (i32, i32) -> i32
+  0x60, 1, 0x7f, 1, 0x7f, // (i32) -> i32
+  0x60, 0, 0, // () -> ()
 ]);
 
 function wasmUrl(): string {
