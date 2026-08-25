@@ -1372,6 +1372,35 @@
      }
     }
    ]
+  },
+  {
+   "name": "Darśana",
+   "key": "darshana",
+   "lang": "sa",
+   "works": [
+    {
+     "id": "sankhya-karika",
+     "title": "Sāṃkhyakārikā",
+     "titleZh": "数论颂",
+     "urn": "urn:sanskrit:darshana/sankhya-karika",
+     "kind": "verse",
+     "license": "GRETIL CC BY-NC-SA 4.0 (text)",
+     "files": [
+      "texts/darshana/sankhya-karika.json"
+     ],
+     "unitCount": 73,
+     "edition": "GRETIL corpustei e-text, input Ferenc Ruzsa",
+     "translation": {
+      "translator": "Henry Thomas Colebrooke",
+      "year": 1837,
+      "license": "Public domain (Colebrooke 1837)",
+      "files": [
+       "trans/sankhya-karika.json"
+      ],
+      "alignment": "karika"
+     }
+    }
+   ]
   }
  ]
 }
