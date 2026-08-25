@@ -58,7 +58,7 @@ MARKERS = {"niṭṭhitaṁ", "niṭṭhitā", "niṭṭhito"}
 PTS_REF = re.compile(r"\s*\(<b>[^<]*</b>\)")
 ANY_TAG = re.compile(r"</?b>")
 COMP = re.compile(r"\d+(?:-\d+)?")
-STEM_RE = re.compile(r"^([a-z]+)([\d.]+)$")
+STEM_RE = re.compile(r"^([a-z]+)([\d.-]+)$")
 
 
 def is_colophon(pl: str) -> bool:
@@ -81,8 +81,9 @@ def clean(text: str) -> str:
 
 def sortkey(fname: str):
     m = STEM_RE.match(fname.replace("_root-pli-ms.json", ""))
-    parts = m.group(2).split(".")
-    return [int(x) for x in parts]
+    if not m:
+        raise SystemExit(f"[pali-abhi] unparsable stem in {fname}")
+    return [int(x.split("-")[0]) for x in m.group(2).split(".")]
 
 
 def file_list(tid: str):
