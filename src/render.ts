@@ -1,6 +1,6 @@
 // Shared interlinear rendering: Greek units (verse lines or prose chunks)
 // with per-word parse cards, controls bar, and the click-for-details panel.
-import { fetchJSON, loadCatalog, loadGloss, loadMorph, stripAccents, type Gloss, type Parse, type Unit } from "./api";
+import { fetchJSON, loadCatalog, loadGloss, loadMorph, stripAccents, zhNameOf, zhTitleOf, type Catalog, type Gloss, type Parse, type Unit } from "./api";
 import { applyClasses, attachChip, isKnown, markKnown, toolbarControls, unmarkKnown } from "./vocab";
 import { copyLinkButtonFor, openStarPanel, starButtonFor } from "./bookmarks";
 import { openLexicon, lexiconButton } from "./lexicon";
@@ -1062,6 +1062,40 @@ export interface Controls {
 /** This bar's TTS status subscription (re-bound per renderControls call). */
 let ttsUiUnsub: (() => void) | null = null;
 
+/* ---------------- bilingual (Chinese) reader header ---------------- */
+
+/**
+ * Reader-header upgrade: swap the flat crumb ("Author, Title") for a
+ * compact two-line stack — Chinese title primary (author group's nameZh
+ * prepended when the catalog ships one), original "Author, Title" small +
+ * muted underneath — when this route's work carries titleZh. No-op when
+ * absent, the route changed mid-load, or the bar was torn down.
+ * Route shapes here are `#/<workId>?ref=…` and `#/pali/<workId>` (work ids
+ * globally unique); legacy tlg pairs redirect before a reader exists.
+ */
+function upgradeCrumbs(crumbs: El, catalog: Catalog): void {
+  const hashAtCall = location.hash;
+  const route = hashAtCall.replace(/^#\/?/, "").split("?")[0];
+  if (!route || route === "about" || route === "pali") return;
+  const wid = route.startsWith("pali/") ? route.slice("pali/".length) : route;
+  if (!wid || wid.includes("/")) return; // not a plain work route
+  let id = wid;
+  try { id = decodeURIComponent(wid); } catch { /* raw slug */ }
+  for (const author of catalog.authors) {
+    const work = author.works.find((w) => w.id === id);
+    if (!work) continue;
+    const zh = zhTitleOf(work);
+    if (!zh || !crumbs.isConnected || location.hash !== hashAtCall) return;
+    crumbs.classList.add("bilingual");
+    const nameZh = zhNameOf(author);
+    const zhLine = el("span", "crumb-zh", nameZh ? `${nameZh} · ${zh}` : zh);
+    zhLine.lang = "zh";
+    crumbs.replaceChildren(zhLine, el("span", "crumb-orig",
+      `${author.name}, ${work.title}`));
+    return;
+  }
+}
+
 export function renderControls(crumbsText: string, onBack: () => void): Controls {
   const bar = el("nav", "controls");
   const back = el("button", undefined, "← Home");
@@ -1103,6 +1137,8 @@ export function renderControls(crumbsText: string, onBack: () => void): Controls
     for (const author of catalog.authors) {
       for (const w of author.works) starTitles.set(w.id, w.title);
     }
+    // bilingual header upgrade (no-op when the work has no titleZh)
+    upgradeCrumbs(bar.querySelector<HTMLElement>(".crumbs")!, catalog);
   }).catch(() => {});
   const starsBtn = el("button", undefined, "★ Saved") as HTMLButtonElement;
   starsBtn.type = "button";

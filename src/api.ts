@@ -16,6 +16,9 @@ export interface CatalogWork {
   license: string;
   files: string[];
   unitCount: number;
+  /** Chinese title when the catalog ships one (added concurrently);
+   *  absent → the original title renders alone. Read via zhTitleOf. */
+  titleZh?: string;
   /** ISO 639 set tag; "pi" (Pali) routes under #/pali/ and skips the
    *  Devanagari display pipeline. Absent = Sanskrit ("sa"). */
   lang?: string;
@@ -23,9 +26,24 @@ export interface CatalogWork {
 export interface CatalogAuthor {
   name: string;
   key: string;
+  /** Chinese group name when the catalog ships one (some corpus groups
+   *  only); absent → the original name renders alone in headers. */
+  nameZh?: string;
   /** Author-level language default when individual works omit lang. */
   lang?: string;
   works: CatalogWork[];
+}
+
+/** Defensive titleZh reader: catalog.json gains the field concurrently;
+ *  absent / non-string / whitespace-only all yield "" → original only. */
+export function zhTitleOf(w: unknown): string {
+  const zh = (w as { titleZh?: unknown } | null)?.titleZh;
+  return typeof zh === "string" ? zh.trim() : "";
+}
+/** Defensive nameZh reader, same contract as zhTitleOf. */
+export function zhNameOf(a: unknown): string {
+  const zh = (a as { nameZh?: unknown } | null)?.nameZh;
+  return typeof zh === "string" ? zh.trim() : "";
 }
 
 /** Effective catalog language of a work: work.lang, else author.lang,

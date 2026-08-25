@@ -1544,3 +1544,81 @@ a.text-hit:focus-visible {
 }
 .tl-credit[hidden] { display: none; }
 .tl-credit.tl-missing { font-style: italic; }
+
+/* ---- bilingual (zh + original) work titles -------------------------------- */
+/* Home cards: Chinese title primary above, original small & muted below. */
+/* Hanzi stack mirrors .tl-line: PingFang SC first on macOS/iOS, Noto/Source
+   CJK on the rest; Latin system faces lead so embedded IAST stays clean. */
+.work-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.work-title-zh {
+  color: var(--accent);
+  font-size: 1.02rem;
+  line-height: 1.3;
+  letter-spacing: normal;
+}
+.work-title-orig {
+  color: var(--faint);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+/* start-here card keeps its own larger title size for the zh line */
+.card .title { display: flex; flex-direction: column; min-width: 0; }
+.card .title .work-title-zh {
+  font-size: inherit;
+  font-weight: inherit;
+}
+/* CJK titles must never be case-transformed — uppercase/small-caps would
+   distort any Latin embedded in zh strings and is meaningless on han. */
+.work-title-zh,
+.author-name-zh,
+.crumbs .crumb-zh {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "WenQuanYi Micro Hei", sans-serif;
+  text-transform: none;
+  font-variant: normal;
+}
+/* author-group heading: nameZh preferred, original beside (muted); both
+   exempt from the h2's uppercase + letterspacing treatment */
+.author-name-zh {
+  font-weight: 650;
+}
+.author-block h2 .author-name-orig {
+  margin-left: 0.6em;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 450;
+  opacity: 0.75;
+}
+/* Reader header: compact stacked pair inside the controls bar; each line
+   clips with ellipsis so long titles can never push the bar wide. */
+.crumbs.bilingual {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+.crumbs.bilingual .crumb-zh {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+.crumbs.bilingual .crumb-orig {
+  color: var(--faint);
+  font-size: 0.7rem;
+}
+.crumbs.bilingual .crumb-zh,
+.crumbs.bilingual .crumb-orig {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* phones: shrink the stacked crumbs further (bar wraps to full row ≤40rem) */
+@media (max-width: 30rem) {
+  .crumbs.bilingual .crumb-zh { font-size: 0.8rem; }
+  .work-title-zh { font-size: 0.98rem; }
+}

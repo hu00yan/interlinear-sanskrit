@@ -8,6 +8,7 @@
 // each section lists only its own language's works.
 import {
   catalogLang, loadCatalog, stripAccents, workRoute,
+  zhNameOf, zhTitleOf,
   type CatalogAuthor, type CatalogWork,
 } from "./api";
 import { lexiconButton } from "./lexicon";
@@ -37,6 +38,39 @@ function langToggle(paliActive: boolean): HTMLElement {
   nav.appendChild(mk("#/", "संस्कृत", !paliActive));
   nav.appendChild(mk("#/pali/", "पालि", paliActive));
   return nav;
+}
+
+/** Bilingual title pair for a work link / card: titleZh (when the catalog
+ *  ships it) is primary — larger, lang="zh" — with the original small and
+ *  muted beneath; without titleZh the original renders alone. All writes
+ *  are textContent-only. */
+function workTitles(w: CatalogWork): HTMLElement {
+  const zh = zhTitleOf(w);
+  if (!zh) return el("span", "work-title", w.title);
+  const titles = el("span", "work-titles");
+  const zhEl = el("span", "work-title-zh", zh);
+  zhEl.lang = "zh";
+  titles.appendChild(zhEl);
+  titles.appendChild(el("span", "work-title-orig", w.title));
+  return titles;
+}
+
+/** Author-group heading: nameZh preferred (zh span, exempt from the h2's
+ *  uppercase transform) with the original beside; original alone when no
+ *  nameZh ships. */
+function authorHeading(author: CatalogAuthor): HTMLElement {
+  const head = el("h2");
+  head.id = author.key;
+  const zh = zhNameOf(author);
+  if (zh) {
+    const zhEl = el("span", "author-name-zh", zh);
+    zhEl.lang = "zh";
+    head.appendChild(zhEl);
+    head.appendChild(el("span", "author-name-orig", author.name));
+  } else {
+    head.textContent = author.name;
+  }
+  return head;
 }
 
 export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void {
@@ -129,14 +163,19 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
 
     // Start-here card: FIRST work in this section following catalog order
     // (Bhagavadgītā on the Sanskrit home, Dhammapada under #/pali/).
-    // Route built from the live id — no hardcoded slugs.
+    // Route built from the live id — no hardcoded slugs. Bilingual like the
+    // work links: titleZh primary, original beneath; original only when
+    // titleZh is absent.
     for (const a of catalog.authors) {
       const work = a.works.find((w) => inSection(w, a));
       if (!work) continue;
       const card = el("a", "card") as HTMLAnchorElement;
       card.href = workRoute(work, a);
       card.dataset.startCard = "1";
-      card.appendChild(el("div", "title", work.title));
+      card.appendChild(el("div", "title"));
+      (card.querySelector(".title") as HTMLElement).appendChild(
+        workTitles(work),
+      );
       card.appendChild(
         el("div", "meta",
           `${work.unitCount.toLocaleString()} verses · word-by-word ` +
@@ -158,16 +197,17 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
   ): HTMLElement {
     const block = el("section", "author-block");
     block.dataset.authorName = stripAccents(author.name);
-    const head = el("h2", undefined, author.name);
-    head.id = author.key;
-    block.appendChild(head);
+    const nameZh = zhNameOf(author);
+    if (nameZh) block.dataset.authorNameZh = nameZh; // raw zh — search target
+    block.appendChild(authorHeading(author));
     const list = el("div", "work-list");
     for (const w of sortedWorks(works)) {
       const link = el("a", "work-link") as HTMLAnchorElement;
       link.href = workRoute(w, author);
       link.dataset.title = stripAccents(w.title);
-      const t = el("span", "work-title", w.title);
-      link.appendChild(t);
+      const zh = zhTitleOf(w);
+      if (zh) link.dataset.titleZh = zh; // raw zh — search filter target
+      link.appendChild(workTitles(w));
       link.appendChild(el("span", "work-meta",
         `${w.unitCount.toLocaleString()} units`));
       link.title = w.license;
@@ -191,12 +231,18 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
     for (const block of Array.from(
       app.querySelectorAll<HTMLElement>(".author-block"),
     )) {
-      const authorHit = !q || block.dataset.authorName!.includes(q);
+      const authorHit = !q || block.dataset.authorName!.includes(q) ||
+        (!!block.dataset.authorNameZh &&
+          block.dataset.authorNameZh.includes(q));
       let shownInBlock = 0;
       for (const link of Array.from(
         block.querySelectorAll<HTMLAnchorElement>(".work-link"),
       )) {
-        const hit = authorHit || !q || link.dataset.title!.includes(q);
+        // match original title AND Chinese title (plain substring; zh needs
+        // no accent folding — stripAccents already lowercased the query)
+        const hit = authorHit || !q ||
+          link.dataset.title!.includes(q) ||
+          (!!link.dataset.titleZh && link.dataset.titleZh.includes(q));
         link.hidden = !hit;
         if (hit) shownInBlock += 1;
       }
