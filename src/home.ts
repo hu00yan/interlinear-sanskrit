@@ -7,10 +7,11 @@
 // compact संस्कृत | पालि toggle next to the title switches between them;
 // each section lists only its own language's works.
 import {
-  catalogLang, loadCatalog, stripAccents, workRoute,
+  catalogLang, hasTranslation, loadCatalog, stripAccents, workRoute,
   zhNameOf, zhTitleOf,
   type CatalogAuthor, type CatalogWork,
 } from "./api";
+import { wordLookupWidget } from "./lookup";
 import { lexiconButton } from "./lexicon";
 import { themeControl } from "./theme";
 import { aboutLink } from "./about";
@@ -24,34 +25,53 @@ const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   return e;
 };
 
-/** Compact संस्कृत ⇄ पालि switch shown beside the site title. */
+/** Compact bilingual संस्कृत/Sanskrit ⇄ पालि/Pāli switch beside the site
+ *  title: Devanagari primary with a small Latin sublabel beneath — each
+ *  segment readable in either script, still compact on phones. */
 function langToggle(paliActive: boolean): HTMLElement {
   const nav = el("nav", "lang-toggle");
   nav.setAttribute("aria-label", "Language section");
-  const mk = (href: string, label: string, active: boolean) => {
-    const a = el("a", active ? "lang-btn active" : "lang-btn",
-      label) as HTMLAnchorElement;
+  const mk = (
+    href: string,
+    deva: string,
+    latin: string,
+    active: boolean,
+  ) => {
+    const a = el("a", active ? "lang-btn active" : "lang-btn") as HTMLAnchorElement;
     a.href = href;
+    const d = el("span", "lang-btn-deva", deva);
+    const l = el("span", "lang-btn-latin", latin);
+    l.lang = "en";
+    a.append(d, l);
     if (active) a.setAttribute("aria-current", "page");
     return a;
   };
-  nav.appendChild(mk("#/", "संस्कृत", !paliActive));
-  nav.appendChild(mk("#/pali/", "पालि", paliActive));
+  nav.appendChild(mk("#/", "संस्कृत", "Sanskrit", !paliActive));
+  nav.appendChild(mk("#/pali/", "पालि", "Pāli", paliActive));
   return nav;
 }
 
 /** Bilingual title pair for a work link / card: titleZh (when the catalog
  *  ships it) is primary — larger, lang="zh" — with the original small and
- *  muted beneath; without titleZh the original renders alone. All writes
- *  are textContent-only. */
+ *  muted beneath; without titleZh the original renders alone. Works with
+ *  no translation files carry a subtle 「无译文」 badge beside the title.
+ *  All writes are textContent-only. */
 function workTitles(w: CatalogWork): HTMLElement {
   const zh = zhTitleOf(w);
-  if (!zh) return el("span", "work-title", w.title);
   const titles = el("span", "work-titles");
-  const zhEl = el("span", "work-title-zh", zh);
-  zhEl.lang = "zh";
-  titles.appendChild(zhEl);
-  titles.appendChild(el("span", "work-title-orig", w.title));
+  if (!zh) titles.appendChild(el("span", "work-title", w.title));
+  else {
+    const zhEl = el("span", "work-title-zh", zh);
+    zhEl.lang = "zh";
+    titles.appendChild(zhEl);
+    titles.appendChild(el("span", "work-title-orig", w.title));
+  }
+  if (!hasTranslation(w)) {
+    const badge = el("span", "no-trans-badge", "无译文");
+    badge.lang = "zh";
+    badge.title = "No translation available for this work yet";
+    titles.appendChild(badge);
+  }
   return titles;
 }
 
@@ -109,10 +129,11 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
   // keydown listener below; a chip invited pointless clicking.
   app.appendChild(searchWrap);
 
-  // ---- muted start-here line (class kept: main.ts inserts the
-  // "Continue reading" section before .starters) ----
-  app.appendChild(el("p", "starters",
-    isPali ? "Start with the Dhammapada." : "Start with the Bhagavad Gītā."));
+  // ---- muted start-here line (linked to its work once the catalog loads;
+  // main.ts inserts the "Continue reading" section before .starters) ----
+  const starters = el("p", "starters",
+    isPali ? "Start with the Dhammapada." : "Start with the Bhagavad Gītā.");
+  app.appendChild(starters);
 
   // "/" focuses search (until the home view is torn down)
   const onKey = (e: KeyboardEvent): void => {
@@ -137,8 +158,15 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
   count.setAttribute("aria-live", "polite");
   app.appendChild(count);
 
-  // ---- cards: start-here work (from catalog at runtime) ----
+  // ---- word-lookup box (the slot above the footer) ----
+  // Ported from greek-reader, where this spot held the parser entry card.
+  // The old static start-here work card (rendered "薄伽梵歌"/Bhagavadgītā)
+  // ceded its place: type any Sanskrit/Pali word — Devanagari or IAST — and
+  // morph parse cards + Monier-Williams entries appear right here, no
+  // navigation. The start-here suggestion stays available as a link in the
+  // .starters line (wired to the catalog below).
   const cards = el("div", "cards");
+  cards.appendChild(wordLookupWidget());
   app.appendChild(cards);
 
   // footer: about / sources & licenses
@@ -161,27 +189,15 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
       app.appendChild(authorBlock(author, works));
     }
 
-    // Start-here card: FIRST work in this section following catalog order
-    // (Bhagavadgītā on the Sanskrit home, Dhammapada under #/pali/).
-    // Route built from the live id — no hardcoded slugs. Bilingual like the
-    // work links: titleZh primary, original beneath; original only when
-    // titleZh is absent.
+    // Start-here line becomes a real link (first in-section work following
+    // catalog order — Bhagavadgītā on the Sanskrit home, Dhammapada under
+    // #/pali/). Route built from the live id — no hardcoded slugs.
     for (const a of catalog.authors) {
       const work = a.works.find((w) => inSection(w, a));
-      if (!work) continue;
-      const card = el("a", "card") as HTMLAnchorElement;
-      card.href = workRoute(work, a);
-      card.dataset.startCard = "1";
-      card.appendChild(el("div", "title"));
-      (card.querySelector(".title") as HTMLElement).appendChild(
-        workTitles(work),
-      );
-      card.appendChild(
-        el("div", "meta",
-          `${work.unitCount.toLocaleString()} verses · word-by-word ` +
-          `analysis & gloss`),
-      );
-      cards.prepend(card);
+      if (!work || !starters.isConnected) continue;
+      const link = el("a", "starter-link", work.title) as HTMLAnchorElement;
+      link.href = workRoute(work, a);
+      starters.replaceChildren("Start with the ", link, ".");
       break;
     }
     applyFilter();

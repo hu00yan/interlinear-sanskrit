@@ -55,6 +55,16 @@ export function catalogLang(
   return w.lang ?? a?.lang ?? "sa";
 }
 
+/** True when the catalog ships usable English translation files for this
+ *  work (translation present with at least one string file path). Works
+ *  failing this test get the 「无译文」 badge and the reader's
+ *  「此卷暂无可用译文」 notice. */
+export function hasTranslation(w: unknown): boolean {
+  const t = (w as { translation?: { files?: unknown } } | null)?.translation;
+  return !!t && Array.isArray(t.files) &&
+    t.files.some((f) => typeof f === "string");
+}
+
 /** Canonical hash route for a work: Pali works live under #/pali/. */
 export function workRoute(w: CatalogWork, a?: CatalogAuthor): string {
   return catalogLang(w, a) === "pi" ? `#/pali/${w.id}` : `#/${w.id}`;
@@ -80,6 +90,8 @@ export interface Parse {
   p: string; // part of speech
   f: string; // features
   x: string; // dialects / stem types
+  /** Inline English gloss when the DCS shard ships one (optional). */
+  g?: string;
 }
 export interface Gloss {
   u: string; // headword (Unicode)

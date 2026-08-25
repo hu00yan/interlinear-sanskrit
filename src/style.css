@@ -177,10 +177,23 @@ h1 {
 }
 .lang-btn {
   font-size: 0.88rem;
-  padding: 4px 12px;
+  padding: 3px 14px 4px;
   color: var(--muted);
   background: var(--surface);
   white-space: nowrap;
+  /* bilingual segment: Devanagari primary + small Latin sublabel */
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+  gap: 1px;
+}
+.lang-btn-deva { font-size: 0.92rem; }
+.lang-btn-latin {
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
 }
 .lang-btn + .lang-btn { border-left: 1px solid var(--border); }
 .lang-btn:hover { background: var(--surface-2); text-decoration: none; }
@@ -507,6 +520,25 @@ button.dev-active { font-weight: 600; }
 
 body.hide-gloss .gloss { display: none; }
 
+/* ---- dual-script grammar tags ------------------------------------------
+ * DCS tags arrive Devanagari ("पुं;1;एक"); each Devanagari tag stacks its
+ * IAST romanization beneath (feat.ts), Latin tokens pass through plain. */
+.feat-tag { white-space: nowrap; }
+.feat-dual {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  vertical-align: bottom;
+  line-height: 1.15;
+}
+.feat-deva { font-family: var(--font-read); }
+.feat-iast {
+  font-size: 0.8em;
+  opacity: 0.78;
+}
+/* diff badges inherit the same dual stacking inside their chip frame */
+.diff-badge .feat-dual { gap: 0; }
+
 /* ---- side panel ------------------------------------------------------------ */
 .panel-backdrop { display: none; }
 
@@ -748,6 +780,87 @@ textarea {
 .work-link:hover { background: var(--surface-2); text-decoration: none; }
 .work-title { color: var(--accent); }
 .work-meta { color: var(--faint); font-size: 0.82rem; white-space: nowrap; }
+
+/* ---- text-only works badge (无译文) -------------------------------------- */
+.no-trans-badge {
+  display: inline-block;
+  font-family: var(--font-ui);
+  font-size: 0.62rem;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.work-titles .no-trans-badge { align-self: flex-start; margin-top: 2px; }
+.controls > .no-trans-badge { margin-top: 2px; }
+
+/* reader notice for works without any translation files */
+.tr-none-note {
+  color: var(--faint);
+  font-size: 0.85rem;
+  margin: 10px 0 0;
+}
+
+/* ---- home word-lookup box ------------------------------------------------
+ * The slot that used to hold the static start-here card now resolves any
+ * Sanskrit/Pali word inline: parse cards + MW entries, no navigation. */
+.word-lookup {
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 18px 12px;
+}
+.wl-input {
+  width: 100%;
+  font-size: 1.05rem;
+  padding: 9px 14px;
+  border-radius: var(--radius-m);
+}
+.wl-hint {
+  color: var(--faint);
+  font-family: var(--font-read);
+  font-size: 1rem;
+  min-height: 1.3em;
+  margin: 8px 0 0;
+}
+.wl-hint:empty { margin: 0; }
+.wl-head {
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 650;
+  color: var(--faint);
+  margin: 12px 0 4px;
+}
+.wl-card {
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  padding: 7px 2px;
+}
+.wl-results .pcard { margin-bottom: 0; }
+.wl-src {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.wl-mw .cand-head { align-items: baseline; }
+.wl-mw .dict-gloss { color: var(--muted); font-size: 0.9rem; margin-top: 2px; }
+/* dual-script lemma stack inside lookup cards */
+.wl-card .lemma {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+}
 
 /* ---- reader pagination -------------------------------------------------------- */
 .reader-status { color: var(--muted); font-size: 0.85rem; margin: 20px 0 8px; }

@@ -17,14 +17,17 @@ test("local verify: home, dual-script reader, MW gloss panel, toggle persistence
 }) => {
   test.setTimeout(90_000);
 
-  // ---- 1. home: Upaniṣads author group + Bhagavadgītā start card ----
+  // ---- 1. home: Upaniṣads author group + word-lookup box ----
+  // (the old static Bhagavadgītā start card ceded its slot to the
+  // word-lookup box; the starters line now carries the Gītā link)
   await page.goto(BASE + "/");
   const upaBlock = page.locator('.author-block:has(h2:text-is("Upaniṣads"))');
   await expect(upaBlock).toBeVisible({ timeout: 15_000 });
   await expect(upaBlock.locator(".work-link").first()).toBeVisible();
-  const card = page.locator('[data-start-card="1"]');
-  await expect(card).toHaveCount(1);
-  await expect(card).toContainText("Bhagavadgītā");
+  const wlBox = page.locator(".word-lookup .wl-input");
+  await expect(wlBox).toBeVisible();
+  const startLink = page.locator(".starters .starter-link");
+  await expect(startLink).toHaveText(/Bhagavadgītā|Bhagavad Gītā/);
 
   // ---- 2. open BhG reader; both scripts on -> stacked deva+IAST lines ----
   await page.goto(BASE + "/#/bhagavadgita");

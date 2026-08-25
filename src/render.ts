@@ -8,6 +8,7 @@ import { themeControl } from "./theme";
 import { disp, registerUnitScripts, scriptPrefControls,
   scriptPrefs } from "./display";
 import { devToIast, iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
+import { featNodes } from "./feats";
 import type { AnalyzeCandidate, AnalyzeResult } from "./parser-wasm";
 
 const glossShards = new Map<string, Record<string, Gloss> | null>();
@@ -174,11 +175,13 @@ export function tallyLemmas(ctx: RenderCtx, units: Unit[]): void {
 
 /**
  * Feature tokens of candidate idx that vary within its same-lemma group,
- * e.g. ["acc"] vs ["dat"] — the disagreement made scannable.
+ * e.g. ["acc"] vs ["dat"] — the disagreement made scannable. DCS feature
+ * strings are ";"/space-separated ("पुं;1;एक"), so both separators split.
  */
 export function diffTokens(fs: string[], idx: number): string[] {
   if (fs.length < 2) return [];
-  const sets = fs.map((f) => new Set((f ?? "").split(/\s+/).filter(Boolean)));
+  const sets = fs.map((f) =>
+    new Set((f ?? "").split(/[;\s|]+/).filter(Boolean)));
   return Array.from(sets[idx]).filter((t) =>
     !sets.every((s) => s.has(t)),
   );
@@ -348,6 +351,14 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
   appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 
+/** Dual-script grammar-tag badge (Devanagari primary + IAST beneath;
+ *  already-Latin tokens stay plain). */
+function featBadge(tok: string): El {
+  const b = el("span", "diff-badge");
+  for (const n of featNodes(tok)) b.appendChild(n);
+  return b;
+}
+
 /**
  * One expanded candidate: compact summary row — lemma, features,
  * diff badges against same-lemma siblings, gloss.
@@ -363,13 +374,14 @@ function candidateRow(
   head.appendChild(elDisp("span", "lemma", p.l || "?"));
   for (const tok of diffTokens(group.map((g) => g.f),
     group.indexOf(p))) {
-    head.appendChild(el("span", "diff-badge", tok));
+    head.appendChild(featBadge(tok));
   }
   row.appendChild(head);
   const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
-  if (feats) row.appendChild(el("div", "feats", feats));
-  const g = ctx.gloss.get(stripAccents(p.l));
-  if (g) row.appendChild(el("div", "gloss", g.g));
+  if (feats) row.appendChild(featsDual(feats));
+  const gl = ctx.gloss.get(stripAccents(p.l));
+  const g = gl ? gl.g : inlineGloss(p);
+  if (g) row.appendChild(el("div", "gloss", g));
   return [row];
 }
 
@@ -379,10 +391,23 @@ function parseCard(p: Parse, ctx: RenderCtx, col: El): void {
   head.appendChild(elDisp("span", "lemma", p.l || "?"));
   card.appendChild(head);
   const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
-  card.appendChild(el("div", "feats", feats));
-  const g = ctx.gloss.get(stripAccents(p.l));
-  card.appendChild(el("div", "gloss", g ? g.g : ""));
+  card.appendChild(featsDual(feats));
+  const gl = ctx.gloss.get(stripAccents(p.l));
+  const g = gl ? gl.g : inlineGloss(p);
+  card.appendChild(el("div", "gloss", g ? g : ""));
   col.appendChild(card);
+}
+
+/** .feats div with dual-script tag nodes (Devanagari + IAST beneath). */
+function featsDual(feats: string): El {
+  const d = el("div", "feats");
+  for (const n of featNodes(feats)) d.appendChild(n);
+  return d;
+}
+
+/** Inline DCS gloss of a parse shard entry, when it ships one. */
+function inlineGloss(p: Parse): string {
+  return typeof p.g === "string" ? p.g : "";
 }
 
 /* ---------------- wasm deep parse (opt-in enhancement) ----------------
@@ -1096,12 +1121,26 @@ function upgradeCrumbs(crumbs: El, catalog: Catalog): void {
   }
 }
 
-export function renderControls(crumbsText: string, onBack: () => void): Controls {
+export function renderControls(
+  crumbsText: string,
+  onBack: () => void,
+  opts?: { noTranslation?: boolean },
+): Controls {
   const bar = el("nav", "controls");
   const back = el("button", undefined, "← Home");
   back.addEventListener("click", onBack);
   bar.appendChild(back);
-  bar.appendChild(el("span", "crumbs", crumbsText));
+  const crumbs = el("span", "crumbs", crumbsText);
+  bar.appendChild(crumbs);
+  // Text-only works: subtle 「无译文」 badge beside the crumbs so readers
+  // know up front that no translation ships for this work. Lives OUTSIDE
+  // .crumbs so the bilingual upgrade (replaceChildren) can't drop it.
+  if (opts?.noTranslation) {
+    const badge = el("span", "no-trans-badge", "无译文");
+    badge.lang = "zh";
+    badge.title = "No translation available for this work yet";
+    bar.appendChild(badge);
+  }
 
   const spacer = el("span", "spacer");
   bar.appendChild(spacer);
@@ -1255,8 +1294,7 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
       const entry = el("div", "entry");
       entry.appendChild(elDisp("span", "lemma", parse.l || "?"));
       const feats = [parse.p, parse.f, parse.x].filter(Boolean).join(" · ");
-      const fEl = el("span", "feats", feats);
-      entry.appendChild(fEl);
+      if (feats) entry.appendChild(featsDual(feats));
       const gl = ctx.gloss.get(stripAccents(parse.l));
       if (gl) {
         entry.appendChild(elDisp("div", "dict-gloss", `${gl.u}: ${gl.g}`));
