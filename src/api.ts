@@ -56,13 +56,29 @@ export function catalogLang(
 }
 
 /** True when the catalog ships usable English translation files for this
- *  work (translation present with at least one string file path). Works
- *  failing this test get the 「无译文」 badge and the reader's
- *  「此卷暂无可用译文」 notice. */
+ *  work (translation present with at least one string file path). */
 export function hasTranslation(w: unknown): boolean {
   const t = (w as { translation?: { files?: unknown } } | null)?.translation;
   return !!t && Array.isArray(t.files) &&
     t.files.some((f) => typeof f === "string");
+}
+
+/** True when the catalog ships usable Chinese translation files for this
+ *  work (translationZh present with at least one string file path). */
+export function hasTranslationZh(w: unknown): boolean {
+  const t = (w as { translationZh?: { files?: unknown } } | null)
+    ?.translationZh;
+  return !!t && Array.isArray(t.files) &&
+    t.files.some((f) => typeof f === "string");
+}
+
+/** Three-tier taxonomy: true ONLY for truly untranslated works — no
+ *  English AND no Chinese translation files. Only these get the 「无译文」
+ *  badge and the reader's 「此卷暂无可用译文」 notice; zh-only works
+ *  (tier 2) instead default the translation layer to 汉译, and dual
+ *  works (EN+zh, tier 1) ship no badge at all. */
+export function isUntranslated(w: unknown): boolean {
+  return !hasTranslation(w) && !hasTranslationZh(w);
 }
 
 /** Canonical hash route for a work: Pali works live under #/pali/. */

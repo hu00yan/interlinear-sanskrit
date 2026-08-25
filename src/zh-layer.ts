@@ -14,15 +14,19 @@
 // Behavior:
 //   • Toggle renders ONLY when translationZh.files is non-empty; works
 //     without it see zero DOM additions (regression-critical).
-//   • Default mode is 英译 (= the pre-existing view); choice persists per
-//     work under localStorage "tl-layer:<workId>".
+//   • Default mode follows the three-tier taxonomy: 英译 when an English
+//     translation also ships (tier 1 dual / tier 2 EN-default), 汉译 for
+//     zh-only works (English would leave the stream blank); choice
+//     persists per work under localStorage "tl-layer:<workId>".
+//   • On zh-only works the 英译 segment is hidden entirely — picking it
+//     would blank the stream.
 //   • 汉译 mode paints an inline zh line per rendered unit (before the parse
 //     row); units without a zh ref fall back to their English text plus a
 //     faint 「无汉译」 tag.
 //   • trans-zh files load lazily on first 汉译 activation (never on initial
 //     page load) and cache in memory; English fallback texts likewise load
 //     lazily and only when a unit actually misses its zh ref.
-import { fetchJSON, type CatalogWork } from "./api";
+import { fetchJSON, hasTranslation, type CatalogWork } from "./api";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -63,12 +67,15 @@ export interface TlLayerHandle {
 
 const lsKey = (workId: string): string => `tl-layer:${workId}`;
 
-function storedMode(workId: string): TlMode {
+/** Persisted layer choice; absent/invalid storage falls back to the
+ *  work's taxonomy default — 英译 when English also ships, 汉译 for
+ *  zh-only works (English would leave the reader blank). */
+function storedMode(workId: string, fallback: TlMode): TlMode {
   try {
-    return localStorage.getItem(lsKey(workId)) === "zh" ? "zh" : "en";
-  } catch {
-    return "en";
-  }
+    const v = localStorage.getItem(lsKey(workId));
+    if (v === "zh" || v === "en") return v;
+  } catch { /* private mode etc. */ }
+  return fallback;
 }
 
 function storeMode(workId: string, m: TlMode): void {
@@ -223,7 +230,13 @@ export function setupTranslationLayer(
   // non-null alias: narrowing above doesn't reach hoisted function bodies
   const catalogMeta: ZhMeta = zhMeta;
 
-  let mode: TlMode = storedMode(work.id);
+  // Three-tier default: 英译 when an English translation ships (persisted
+  // choice honored, else 英译 as before); zh-only works (入法界品, 楞伽经,
+  // …) are pinned to 汉译 — English would leave the stream blank, and the
+  // 英译 segment below is hidden for them.
+  let mode: TlMode = hasTranslation(work)
+    ? storedMode(work.id, "en")
+    : "zh";
   let gen = 0; // bumps per mode change; stale async syncs bail out
   let zhFileMeta: ZhFile | null | "unloaded" = "unloaded";
   let suppressed = false; // sidebar view owns the stream while true
@@ -243,6 +256,11 @@ export function setupTranslationLayer(
   };
   wrap.appendChild(btnEn);
   wrap.appendChild(btnZh);
+  // zh-only works: the 英译 segment would blank the stream — hide it.
+  if (!hasTranslation(work)) {
+    btnEn.hidden = true;
+    wrap.setAttribute("aria-label", "Translation layer (汉译 only)");
+  }
   paintCtl();
   opts.controls.appendChild(wrap);
 

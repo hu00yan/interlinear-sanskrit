@@ -1147,9 +1147,10 @@ export function renderControls(
   bar.appendChild(back);
   const crumbs = el("span", "crumbs", crumbsText);
   bar.appendChild(crumbs);
-  // Text-only works: subtle 「无译文」 badge beside the crumbs so readers
-  // know up front that no translation ships for this work. Lives OUTSIDE
-  // .crumbs so the bilingual upgrade (replaceChildren) can't drop it.
+  // Truly untranslated works (no EN and no zh): subtle 「无译文」 badge
+  // beside the crumbs so readers know up front that no translation ships.
+  // Zh-only works don't get this — their 汉译 layer is the translation.
+  // Lives OUTSIDE .crumbs so the bilingual upgrade can't drop it.
   if (opts?.noTranslation) {
     const badge = el("span", "no-trans-badge", "无译文");
     badge.lang = "zh";

@@ -7,7 +7,7 @@
 // compact संस्कृत | पालि toggle next to the title switches between them;
 // each section lists only its own language's works.
 import {
-  catalogLang, hasTranslation, loadCatalog, stripAccents, workRoute,
+  catalogLang, isUntranslated, loadCatalog, stripAccents, workRoute,
   zhNameOf, zhTitleOf,
   type CatalogAuthor, type CatalogWork,
 } from "./api";
@@ -53,9 +53,9 @@ function langToggle(paliActive: boolean): HTMLElement {
 
 /** Bilingual title pair for a work link / card: titleZh (when the catalog
  *  ships it) is primary — larger, lang="zh" — with the original small and
- *  muted beneath; without titleZh the original renders alone. Works with
- *  no translation files carry a subtle 「无译文」 badge beside the title.
- *  All writes are textContent-only. */
+ *  muted beneath; without titleZh the original renders alone. Only truly
+ *  untranslated works (no EN and no zh) carry a subtle 「无译文」 badge
+ *  beside the title. All writes are textContent-only. */
 function workTitles(w: CatalogWork): HTMLElement {
   const zh = zhTitleOf(w);
   const titles = el("span", "work-titles");
@@ -66,7 +66,9 @@ function workTitles(w: CatalogWork): HTMLElement {
     titles.appendChild(zhEl);
     titles.appendChild(el("span", "work-title-orig", w.title));
   }
-  if (!hasTranslation(w)) {
+  // 「无译文」 badge ONLY for truly untranslated works (no EN and no zh);
+  // zh-only works default to the 汉译 layer in the reader instead.
+  if (isUntranslated(w)) {
     const badge = el("span", "no-trans-badge", "无译文");
     badge.lang = "zh";
     badge.title = "No translation available for this work yet";

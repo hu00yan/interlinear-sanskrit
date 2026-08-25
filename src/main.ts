@@ -6,7 +6,7 @@
 // best-effort onto catalog ids.
 import "./style.css";
 import {
-  catalogLang, hasTranslation, loadCatalog, loadPart, workRoute,
+  catalogLang, isUntranslated, loadCatalog, loadPart, workRoute,
   type CatalogAuthor, type CatalogWork, type Unit,
 } from "./api";
 import {
@@ -250,8 +250,9 @@ async function openReader(
 
   const controls = renderControls(`${author.name}, ${work.title}`,
     () => (location.hash = section === "pi" ? "#/pali/" : ""),
-    // text-only works: 「无译文」 badge beside the crumbs
-    { noTranslation: !hasTranslation(work) });
+    // 「无译文」 badge ONLY for truly untranslated works (no EN and no
+    // zh); zh-only works show the 汉译 layer instead — no badge.
+    { noTranslation: isUntranslated(work) });
   document.title = section === "pi"
     ? `${work.title} · Pali Reader`
     : `${work.title} · Sanskrit Reader`;
@@ -286,9 +287,10 @@ async function openReader(
   }
 
   const body = el("div");
-  // Text-only works: say ONCE, up front, that no translation row will
-  // appear — instead of silently omitting the translation area.
-  if (!hasTranslation(work)) {
+  // Truly untranslated works (no EN and no zh): say ONCE, up front, that
+  // no translation row will appear — instead of silently omitting the
+  // translation area. Zh-only works skip this: their 汉译 layer paints it.
+  if (isUntranslated(work)) {
     const note = el("p", "tr-none-note", "此卷暂无可用译文");
     note.lang = "zh";
     app.appendChild(note);
