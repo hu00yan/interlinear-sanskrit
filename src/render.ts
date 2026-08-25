@@ -8,7 +8,7 @@ import { themeControl } from "./theme";
 import { disp, registerUnitScripts, scriptPrefControls,
   scriptPrefs } from "./display";
 import { devToIast, iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
-import { featNodes } from "./feats";
+import { featNodes, featsEl, lemmaDualEl } from "./feats";
 import type { AnalyzeCandidate, AnalyzeResult } from "./parser-wasm";
 
 const glossShards = new Map<string, Record<string, Gloss> | null>();
@@ -351,7 +351,7 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
   appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 
-/** Dual-script grammar-tag badge (Devanagari primary + IAST beneath;
+/** Dual-script grammar-tag badge (IAST primary + Devanagari beneath;
  *  already-Latin tokens stay plain). */
 function featBadge(tok: string): El {
   const b = el("span", "diff-badge");
@@ -371,7 +371,7 @@ function candidateRow(
 ): El[] {
   const row = el("div", "pcard cand-row");
   const head = el("div", "cand-head");
-  head.appendChild(elDisp("span", "lemma", p.l || "?"));
+  head.appendChild(lemmaDualEl(p.l || "?"));
   for (const tok of diffTokens(group.map((g) => g.f),
     group.indexOf(p))) {
     head.appendChild(featBadge(tok));
@@ -388,7 +388,7 @@ function candidateRow(
 function parseCard(p: Parse, ctx: RenderCtx, col: El): void {
   const card = el("div", "pcard");
   const head = el("div", "cand-head");
-  head.appendChild(elDisp("span", "lemma", p.l || "?"));
+  head.appendChild(lemmaDualEl(p.l || "?"));
   card.appendChild(head);
   const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
   card.appendChild(featsDual(feats));
@@ -398,11 +398,10 @@ function parseCard(p: Parse, ctx: RenderCtx, col: El): void {
   col.appendChild(card);
 }
 
-/** .feats div with dual-script tag nodes (Devanagari + IAST beneath). */
+/** .feats div with dual-script tag nodes (IAST primary + Devanagari
+ *  beneath). */
 function featsDual(feats: string): El {
-  const d = el("div", "feats");
-  for (const n of featNodes(feats)) d.appendChild(n);
-  return d;
+  return featsEl(feats);
 }
 
 /** Inline DCS gloss of a parse shard entry, when it ships one. */
@@ -1250,7 +1249,12 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
   document.querySelectorAll(".w.active").forEach((n) => n.classList.remove("active"));
   span.classList.add("active");
 
-  body.appendChild(elDisp("h2", undefined, word));
+  // dual-script heading (IAST primary + Devanagari beneath); the raw form
+  // rides on data-word so async fills can detect staleness
+  const h2 = el("h2");
+  h2.dataset.word = word;
+  h2.appendChild(lemmaDualEl(word));
+  body.appendChild(h2);
   const parses = ctx.morph.get(stripAccents(word)) ?? [];
 
   // vocabulary book: mark/unmark this form (stores stripped key + best lemma)
@@ -1292,7 +1296,7 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     const seenLemmas = new Set<string>();
     for (const parse of parses) {
       const entry = el("div", "entry");
-      entry.appendChild(elDisp("span", "lemma", parse.l || "?"));
+      entry.appendChild(lemmaDualEl(parse.l || "?"));
       const feats = [parse.p, parse.f, parse.x].filter(Boolean).join(" · ");
       if (feats) entry.appendChild(featsDual(feats));
       const gl = ctx.gloss.get(stripAccents(parse.l));
@@ -1311,10 +1315,10 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     if (gl && !dictEntries.some((d) => d.u === gl.u)) dictEntries.push(gl);
   }
   if (dictEntries.length) {
-    body.appendChild(el("h3", undefined, "LSJ"));
+    body.appendChild(el("h3", undefined, "Monier-Williams"));
     for (const d of dictEntries) {
       const entry = el("div", "entry");
-      entry.appendChild(elDisp("span", "lemma", d.u));
+      entry.appendChild(lemmaDualEl(d.u));
       entry.appendChild(el("div", "dict-gloss", d.g));
       body.appendChild(entry);
     }
@@ -1376,10 +1380,10 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
         if (hit) break;
       }
       if (!hit || !panel || panel.classList.contains("hidden")) return;
-      if ((body.querySelector("h2")?.textContent ?? "") !== wantWord) return;
+      if ((body.querySelector("h2")?.dataset.word ?? "") !== wantWord) return;
       body.appendChild(el("h3", "mw-head", "Monier-Williams"));
       const entryDiv = el("div", "entry mw-entry");
-      entryDiv.appendChild(el("span", "lemma", primaryText(hit.u)));
+      entryDiv.appendChild(lemmaDualEl(hit.u));
       // skip OCR/parsing artifacts that reduced the sense to punctuation
       if (/[^\u0900-\u097fA-Za-z]/.test(hit.g.replace(/\s/g, "")) &&
           hit.g.replace(/[^A-Za-z\u0900-\u097f]/g, "").length >= 3) {

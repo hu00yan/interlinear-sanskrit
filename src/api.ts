@@ -95,7 +95,7 @@ export interface Parse {
 }
 export interface Gloss {
   u: string; // headword (Unicode)
-  g: string; // LSJ gloss
+  g: string; // Monier-Williams gloss
 }
 
 const jsonCache = new Map<string, Promise<unknown>>();

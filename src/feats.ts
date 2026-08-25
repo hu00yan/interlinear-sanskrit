@@ -1,11 +1,15 @@
-// Dual-script grammar tags: DCS feature strings arrive Devanagari-tagged
-// ("लट्", "प्रथम", "बहु", "पुं"…). Every Devanagari tag renders STACKED with
-// its IAST romanization beneath (devToIast at runtime) so readers of either
-// script can scan parses; already-Latin tokens (UPOS names like "noun",
-// digits, dialect/stemtype tags) pass through untouched.
+// Dual-script grammar tags + lemmas: DCS feature strings arrive
+// Devanagari-tagged ("लट्", "प्रथम", "बहु", "पुं"…). Every Devanagari tag
+// renders STACKED with its IAST romanization, IAST FIRST/PRIMARY (heavier,
+// full color) and the Devanagari beneath SECONDARY (muted, smaller):
+//   लङ् -> laṅ (लङ्)
+// so readers of either script can scan parses while IAST leads. Already-
+// Latin tokens (UPOS names like "noun", digits, dialect/stemtype tags) pass
+// through untouched. Lemmas get the same treatment via lemmaDualEl.
 //
-// Shared by the reader parse cards + side panel (render.ts) and the home
-// word-lookup box (lookup.ts). textContent-only — never innerHTML.
+// Shared by the reader parse cards + side panel (render.ts), the home
+// word-lookup box (lookup.ts) and the dictionary drawer (lexicon.ts).
+// textContent-only — never innerHTML.
 import { devToIast } from "./translit";
 
 type El = HTMLElement;
@@ -15,7 +19,7 @@ export function isDevaStr(s: string): boolean {
   return /[\u0900-\u097f]/.test(s);
 }
 
-/** One grammar tag -> element: Devanagari with IAST beneath, or plain Latin. */
+/** One grammar tag -> element: IAST over muted Devanagari, or plain Latin. */
 export function featTagEl(tok: string): El {
   const span = document.createElement("span");
   if (!isDevaStr(tok)) {
@@ -24,15 +28,16 @@ export function featTagEl(tok: string): El {
     return span;
   }
   span.className = "feat-tag feat-dual";
-  const deva = document.createElement("span");
-  deva.className = "feat-deva";
-  deva.textContent = tok;
   const iast = document.createElement("span");
   iast.className = "feat-iast";
   iast.lang = "sa-Latn";
-  iast.title = tok;
   iast.textContent = devToIast(tok);
-  span.append(deva, iast);
+  const deva = document.createElement("span");
+  deva.className = "feat-deva";
+  deva.lang = "sa";
+  deva.title = devToIast(tok);
+  deva.textContent = tok;
+  span.append(iast, deva);
   return span;
 }
 
@@ -59,4 +64,29 @@ export function featsEl(feats: string, cls = "feats"): El {
   d.className = cls;
   for (const n of featNodes(feats)) d.appendChild(n);
   return d;
+}
+
+/**
+ * Lemma/headword display: BOTH scripts, IAST PRIMARY on top, Devanagari
+ * secondary beneath. Non-Devanagari strings (Pali lemmas, SLP1 fallback
+ * keys) render as-is in one span.
+ */
+export function lemmaDualEl(lemma: string): El {
+  const span = document.createElement("span");
+  if (!isDevaStr(lemma)) {
+    span.className = "lemma";
+    span.textContent = lemma || "?";
+    return span;
+  }
+  span.className = "lemma lemma-stack";
+  const iast = document.createElement("span");
+  iast.className = "lemma-iast";
+  iast.lang = "sa-Latn";
+  iast.textContent = devToIast(lemma);
+  const deva = document.createElement("span");
+  deva.className = "lemma-deva";
+  deva.lang = "sa";
+  deva.textContent = lemma;
+  span.append(iast, deva);
+  return span;
 }

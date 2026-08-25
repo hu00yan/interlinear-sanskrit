@@ -1,14 +1,16 @@
-// Lexicon drawer: one search box resolving ANY Greek input.
-// Two lookup paths, results merged:
-//   1. morph shards (accent-stripped form -> candidate lemma cards + glosses)
-//   2. direct LSJ headword prefix scan over the gloss shard of the query's
-//      first letter.
-// Beta Code input is detected by TLG markers (* ) ( ) / \ = | +) and
-// converted via fromBeta before lookup; raw input is always tried too.
+// Dictionary drawer: one search box resolving ANY Sanskrit/Pali input.
+// Two lookup paths, results merged (same data as the home word-lookup box):
+//   1. morph shards (surface form -> parse cards with dual-script tags)
+//   2. Monier-Williams gloss shards via SLP1 keys — exact headword first,
+//      then headwords starting with the query key.
+// Input accepts Devanagari AND IAST in any mix; direction is detected per
+// keystroke and both spellings are probed. NO Greek/Beta-Code/LSJ paths —
+// this drawer was ported from the Greek reader and fully de-Greeked.
 // Keyboard: Enter focuses first result; ArrowUp/Down navigate; Esc closes.
-import { fromBeta } from "./betacode";
-import { fetchJSON, loadMorph, loadGloss, stripAccents,
-  type Gloss, type Parse } from "./api";
+import { fetchJSON, loadMorph, stripAccents, type Parse } from "./api";
+import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
+  slp1KeyVariants } from "./translit";
+import { featsEl, featTagEl, lemmaDualEl } from "./feats";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -18,8 +20,10 @@ const el = (tag: string, cls?: string, text?: string): El => {
   return e;
 };
 
-// TLG Beta Code markers; also plain digits-as-homonym style like "o9eos"
-const BETA_RE = /[*()\\\/+=|\d]/;
+interface MwEntry {
+  u: string; // headword as shipped (usually Devanagari)
+  g: string; // English gloss
+}
 
 let drawer: El | null = null;
 let input: HTMLInputElement | null = null;
@@ -30,18 +34,20 @@ let searchSeq = 0;
 function ensureDrawer(): El {
   if (drawer) return drawer;
   drawer = el("aside", "drawer left hidden");
-  drawer.setAttribute("aria-label", "Lexicon");
+  drawer.setAttribute("aria-label", "Dictionary");
 
   const close = el("button", "close-btn", "×");
-  close.setAttribute("aria-label", "Close lexicon");
+  close.setAttribute("aria-label", "Close dictionary");
   close.addEventListener("click", closeLexicon);
   drawer.appendChild(close);
 
   drawer.appendChild(el("h2", undefined, "Lexicon"));
 
   input = el("input", "lex-search") as HTMLInputElement;
-  input.type = "search";  input.placeholder = "Greek or Beta Code — λόγος or lo/gos";
-  input.setAttribute("aria-label", "Lexicon search");
+  input.type = "search";
+  input.placeholder = "Sanskrit / Pāli — राम or rāma …";
+  input.setAttribute("aria-label",
+    "Dictionary search: grammar analysis and Monier-Williams entries");
   input.autocomplete = "off";
   input.spellcheck = false;
   drawer.appendChild(input);
@@ -72,6 +78,8 @@ export function openLexicon(prefill?: string): void {
   d.classList.remove("hidden");
   document.body.classList.add("lexicon-open");
   if (prefill && input) {
+    // prefills arrive as lemma headwords (Devanagari or IAST) — show them
+    // as-is; runSearch detects the script either way.
     input.value = prefill;
   }
   if (input) {
@@ -107,145 +115,128 @@ export function lexiconButton(label = "Lexicon"): El {
 
 /* ---------------- lookups ---------------- */
 
-interface LemmaHit {
-  lemma: string;       // Unicode lemma as stored
-  parses: Parse[];
-  gloss?: Gloss;
-  src: "morph" | "lsj";
+const MAX_PARSES = 12;
+const MAX_MW = 20;
+
+/** MW entries for a query in either script: exact shard key + sibilant
+ *  variants first, then headwords beginning with the key (prefix scan,
+ *  capped). Misses return []. */
+async function mwEntries(q: string): Promise<MwEntry[]> {
+  const key = slp1KeyFor(q);
+  if (!key || key.length < 2) return [];
+  const letter = key[0]!;
+  if (!/^[a-z]$/.test(letter)) return [];
+  const shard = await fetchJSON<Record<string, { u?: string; g?: string }>>(
+    `data/gloss/${letter}.json`,
+  ).catch(() => null);
+  if (!shard) return [];
+  const out: MwEntry[] = [];
+  const seen = new Set<string>();
+  for (const base of [key, ...slp1KeyVariants(key)]) {
+    const k = base.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const hit = shard[k];
+    if (hit && (hit.u || hit.g)) out.push({ u: hit.u ?? k, g: hit.g ?? "" });
+  }
+  for (const k of Object.keys(shard)
+    .filter((k) => k.startsWith(key) && !seen.has(k))
+    .sort()
+    .slice(0, MAX_MW)) {
+    const hit = shard[k]!;
+    out.push({ u: hit.u ?? k, g: hit.g ?? "" });
+  }
+  return out.slice(0, MAX_MW);
+}
+
+/** Drop byte-identical duplicate analyses (DCS ships several). */
+function dedupe(parses: Parse[]): Parse[] {
+  const seen = new Set<string>();
+  return parses.filter((p) => {
+    const k = `${p.l}|${p.p}|${p.f}|${p.x}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/** One parse card (mirrors the reader's best-parse card). */
+function parseCard(p: Parse): El {
+  const card = el("div", "pcard lex-card");
+  const head = el("div", "cand-head");
+  head.appendChild(lemmaDualEl(p.l || "?"));
+  card.appendChild(head);
+  const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
+  if (feats) card.appendChild(featsEl(feats));
+  const g = typeof p.g === "string" ? p.g : "";
+  if (g) card.appendChild(el("div", "gloss", g));
+  return card;
+}
+
+/** One MW entry card: dual-script headword + English gloss. */
+function mwCard(e: MwEntry): El {
+  const card = el("div", "entry lex-card lex-mw");
+  card.appendChild(el("span", "lex-src", "MW"));
+  const head = el("div", "cand-head");
+  head.appendChild(lemmaDualEl(e.u));
+  card.appendChild(head);
+  if (e.g) card.appendChild(el("div", "dict-gloss", e.g));
+  return card;
 }
 
 async function runSearch(): Promise<void> {
-  const d = ensureDrawer();
+  ensureDrawer();
   const raw = input?.value ?? "";
   const q = raw.trim();
   const seq = ++searchSeq;
   results!.replaceChildren();
-
-  // beta-code conversion (raw input is always tried as well)
-  let converted: string | null = null;
-  if (q && BETA_RE.test(q)) {
-    try {
-      const u = fromBeta(q);
-      if (u !== q) converted = u;
-    } catch { /* fall back to raw only */ }
-  }
-  hint!.textContent =
-    converted !== null ? "β-code detected" : "";
+  hint!.replaceChildren();
 
   if (!q) {
     results!.appendChild(
       el("p", "lex-hint-empty",
-        "Type a Greek form (exact or accent-less) or an LSJ headword prefix."),
+        "Type a Sanskrit or Pali word — Devanagari (राम) or IAST (rāma)."),
     );
     return;
   }
 
-  const queries = Array.from(new Set(
-    [converted, q].filter((x): x is string => !!x),
-  ));
-  const hits = await Promise.all(queries.map(lookupAll));
-  if (seq !== searchSeq) return; // stale keystroke
-  const seen = new Set<string>();
+  // Both scripts accepted: normalize to Devanagari for the morphology
+  // surface index; keep an IAST echo under the input.
+  const deva = isDevanagari(q) ? q : iastToDev(q);
+  const iast = isDevanagari(q) ? devToIast(q) : stripAccents(q);
+  hint!.appendChild(featTagEl(deva));
+
+  const mySeq = seq;
+  const [morphMap, mw] = await Promise.all([
+    loadMorph([deva]).catch(() => new Map<string, Parse[]>()),
+    mwEntries(q),
+  ]);
+  if (mySeq !== searchSeq || !results!.isConnected) return; // stale keystroke
+
   let shown = 0;
-  for (const list of hits) {
-    for (const h of list) {
-      const k = `${stripAccents(h.lemma)}|${h.src}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      results!.appendChild(hitCard(h));
+  const parses = dedupe(morphMap.get(deva) ?? []);
+  if (parses.length) {
+    results!.appendChild(el("h3", "wl-head",
+      `解析 Grammar · ${parses.length}`));
+    for (const p of parses.slice(0, MAX_PARSES)) {
+      results!.appendChild(parseCard(p));
+      shown += 1;
+    }
+  }
+  if (mw.length) {
+    results!.appendChild(el("h3", "wl-head", "Monier-Williams"));
+    for (const e of mw) {
+      results!.appendChild(mwCard(e));
       shown += 1;
       if (shown >= 40) break;
     }
-    if (shown >= 40) break;
   }
   if (!shown) {
     results!.appendChild(
       el("p", "lex-hint-empty",
-        `No matches for “${converted ?? q}”.`),
+        `No matches for “${q}” — try another spelling (${iast}).`),
     );
   }
-  void d;
-}
-
-/** Morph-form lookup + LSJ headword prefix for one query string. */
-async function lookupAll(q: string): Promise<LemmaHit[]> {
-  const out: LemmaHit[] = [];
-  const stripped = stripAccents(q);
-  try {
-    const morph = await loadMorph([q]);
-    const parses = morph.get(stripped) ?? [];
-    if (parses.length) {
-      const lemmas = Array.from(new Set(parses.map((p) => p.l)));
-      const glosses = await loadGloss(lemmas).catch(() =>
-        new Map<string, Gloss>());
-      for (const l of lemmas) {
-        out.push({
-          lemma: l,
-          parses: parses.filter((p) => p.l === l),
-          gloss: glosses.get(stripAccents(l)),
-          src: "morph",
-        });
-      }
-    }
-  } catch { /* shards missing — LSJ path may still answer */ }
-
-  // LSJ headword prefix over the first-letter shard
-  const letter = /^[a-z]$/.test(firstBetaLetter(stripped))
-    ? firstBetaLetter(stripped)
-    : null;
-  if (letter) {
-    const shard = await fetchJSON<Record<string, Gloss>>(
-      `data/gloss/${letter}.json`,
-    ).catch(() => null);
-    if (shard) {
-      const keys = Object.keys(shard)
-        .filter((k) => k.startsWith(stripped))
-        .sort()
-        .slice(0, 25);
-      for (const k of keys) {
-        const g = shard[k];
-        out.push({
-          lemma: g?.u ?? k,
-          parses: [],
-          gloss: g,
-          src: "lsj",
-        });
-      }
-    }
-  }
-  return out;
-}
-
-function firstBetaLetter(s: string): string {
-  const BETA: Record<string, string> = {
-    α: "a", β: "b", γ: "g", δ: "d", ε: "e", ζ: "z", η: "h", θ: "q",
-    ι: "i", κ: "k", λ: "l", μ: "m", ν: "n", ξ: "c", ο: "o", π: "p",
-    ρ: "r", σ: "s", τ: "t", υ: "u", φ: "f", χ: "x", ψ: "y", ω: "w",
-  };
-  for (const ch of s.replace(/ς/g, "σ")) {
-    const b = BETA[ch];
-    if (b) return b;
-  }
-  return "";
-}
-
-function hitCard(h: LemmaHit): El {
-  const card = el("button", "lex-card") as HTMLButtonElement;
-  card.type = "button";
-  card.appendChild(el("span", "lex-src",
-    h.src === "morph" ? "form" : "LSJ"));
-  const head = el("div");
-  head.appendChild(el("span", "lemma", h.lemma || "?"));
-  card.appendChild(head);
-  if (h.parses.length) {
-    card.appendChild(el("div", "feats",
-      h.parses.slice(0, 2)
-        .map((p) => [p.p, p.f].filter(Boolean).join(" "))
-        .filter(Boolean)
-        .join(" | ")));
-  }
-  if (h.gloss) card.appendChild(el("div", "gloss", h.gloss.g));
-  return card;
 }
 
 /* ---------------- keyboard navigation ---------------- */

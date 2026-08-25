@@ -521,8 +521,9 @@ button.dev-active { font-weight: 600; }
 body.hide-gloss .gloss { display: none; }
 
 /* ---- dual-script grammar tags ------------------------------------------
- * DCS tags arrive Devanagari ("पुं;1;एक"); each Devanagari tag stacks its
- * IAST romanization beneath (feat.ts), Latin tokens pass through plain. */
+ * DCS tags arrive Devanagari ("पुं;1;एक"); each tag stacks its IAST
+ * romanization PRIMARY on top (feat.ts) with the Devanagari secondary
+ * beneath — muted, smaller. Latin tokens pass through plain. */
 .feat-tag { white-space: nowrap; }
 .feat-dual {
   display: inline-flex;
@@ -531,13 +532,31 @@ body.hide-gloss .gloss { display: none; }
   vertical-align: bottom;
   line-height: 1.15;
 }
-.feat-deva { font-family: var(--font-read); }
-.feat-iast {
-  font-size: 0.8em;
-  opacity: 0.78;
+.feat-iast { font-weight: 600; } /* IAST primary */
+.feat-deva {
+  font-family: var(--font-read);
+  font-size: 0.78em;   /* Devanagari secondary */
+  opacity: 0.72;
 }
 /* diff badges inherit the same dual stacking inside their chip frame */
 .diff-badge .feat-dual { gap: 0; }
+
+/* dual-script lemmas/headwords (parse cards, panel, lookup + drawer):
+   .lemma keeps its warm italic look; the IAST span carries it, the
+   Devanagari span stacks beneath, muted + smaller. */
+.lemma.lemma-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+}
+.lemma .lemma-iast { font-weight: bold; }
+.lemma .lemma-deva {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 0.8em;
+  opacity: 0.7;
+}
 
 /* ---- side panel ------------------------------------------------------------ */
 .panel-backdrop { display: none; }
@@ -854,13 +873,6 @@ textarea {
 }
 .wl-mw .cand-head { align-items: baseline; }
 .wl-mw .dict-gloss { color: var(--muted); font-size: 0.9rem; margin-top: 2px; }
-/* dual-script lemma stack inside lookup cards */
-.wl-card .lemma {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  line-height: 1.15;
-}
 
 /* ---- reader pagination -------------------------------------------------------- */
 .reader-status { color: var(--muted); font-size: 0.85rem; margin: 20px 0 8px; }

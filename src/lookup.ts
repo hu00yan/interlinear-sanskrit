@@ -12,7 +12,7 @@ import { fetchJSON, loadMorph, stripAccents,
   type Parse } from "./api";
 import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
   slp1KeyVariants } from "./translit";
-import { featsEl, featTagEl, isDevaStr } from "./feats";
+import { featsEl, featTagEl, lemmaDualEl } from "./feats";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -76,18 +76,10 @@ function dedupeParses(parses: Parse[]): Parse[] {
   });
 }
 
-/** Lemma display: dual-script stacked when Devanagari, plain otherwise. */
+/** Lemma display: dual-script stacked (IAST primary + Devanagari beneath),
+ *  plain when already Latin. */
 function lemmaEl(lemma: string): El {
-  const span = el("span", "lemma");
-  if (!isDevaStr(lemma)) {
-    span.textContent = lemma || "?";
-    return span;
-  }
-  const deva = el("span", "feat-deva", lemma);
-  const iast = el("span", "feat-iast", devToIast(lemma));
-  iast.lang = "sa-Latn";
-  span.append(deva, iast);
-  return span;
+  return lemmaDualEl(lemma);
 }
 
 /** One parse card, mirroring the reader's collapsed best-parse card. */
