@@ -1302,6 +1302,26 @@
      }
     }
    ]
+  },
+  {
+   "name": "Bhartṛhari",
+   "key": "bhartrhari",
+   "works": [
+    {
+     "id": "satakatraya",
+     "title": "Śatakatraya",
+     "titleZh": "三百咏",
+     "urn": "urn:sanskrit:satakatraya",
+     "license": "GRETIL CC BY-NC-SA 4.0 (text)",
+     "kind": "verse",
+     "files": [
+      "texts/kavya/satakatraya.json"
+     ],
+     "unitCount": 321,
+     "edition": "Brzezinski (GRETIL corpustei): Nīti 109, Śṛṅgāra 104, Vairāgya 108 marker instances; repeated verses carry .2 suffixes",
+     "translation": null
+    }
+   ]
   }
  ]
 }

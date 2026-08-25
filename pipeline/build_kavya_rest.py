@@ -68,7 +68,7 @@ class Refs:
     def uniq(self, base):
         n = self.seen.get(base, 0) + 1
         self.seen[base] = n
-        return base if n == 1 else f"{base}.2"
+        return base if n == 1 else f"{base}.{n}"
 
 
 def read_tei(fname):
