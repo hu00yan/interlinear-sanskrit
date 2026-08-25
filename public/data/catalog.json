@@ -322,6 +322,27 @@
        "trans/pali-suttanipata-sujato.json"
       ]
      }
+    },
+    {
+     "id": "pali-theragatha",
+     "title": "Theragāthā",
+     "titleZh": "长老偈",
+     "urn": "urn:pali:pali-theragatha",
+     "lang": "pi",
+     "kind": "verse",
+     "license": "CC0",
+     "files": [
+      "texts/pali/theragatha.json"
+     ],
+     "unitCount": 264,
+     "translation": {
+      "translator": "Bhikkhu Sujato",
+      "year": 2018,
+      "license": "CC0",
+      "files": [
+       "trans/pali-theragatha-sujato.json"
+      ]
+     }
     }
    ]
   },
