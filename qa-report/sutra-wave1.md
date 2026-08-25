@@ -1,0 +1,8 @@
+# QA report — Mahāyāna sūtra wave-1 (2026-08-25)
+
+All 4 works INGESTED, none skipped. New author group `Mahāyāna Sūtras` (lang sa) appended at END of catalog.authors; text license = GRETIL CC BY-NC-SA 4.0 per file headers; zh = PD wikisource.
+1 **bhadracari** 普贤行愿品 64u (frame 0 + BuSto_17.1–62 + colophon c) · 般若798 T293卷40 · zh 63/64 (98%) · **full** verse map 62↔62; colophon ref c omitted (T293 closes w/ Gaṇḍavyūha narrative). BHS forms kept verbatim. Commit 8e507ef.
+2 **bhaishajyaguru** 药师经 48u seq · 玄奘650 T450 · zh 48/48 (100%) · partial: anchor+proportional over 5 landmarks (opening/12愿/愿末/kṣetra+利益/Ānanda tail); Vaidya Skt ed LACKS dhāraṇī that T450 has; lacunae `- - -` + `(?)` kept. Commit d45d4d2.
+3 **dasabhumika** 十住经 204u `<bhūmi>.<seq>` · 鳩摩羅什~405 T286 · zh 192/204 (94%, all 10 地 covered) · partial bhūmi-level; ch.11 parīndanā untranslated (no T286 counterpart); GRETIL's trailing gāthāvibhāga digest EXCLUDED as duplicate; fused bhūmi-5 header block parsed. Commit 1322780.
+4 **suvarnaprabhasa** 金光明经 241u `<parivarta>.<seq>` (+0.1 title-verse) · 曇無讖~412 T663 CHOSEN over 義淨703 T665: Bagchi ed = Nepalese recension, 20 parivartas matching Dharmakṣema's 19品 (documented); svapna+deśanā share 懺悔品 proportionally; recension gaps honest both sides (Skt pv.10 nāma-saṃdhāraṇī ↔ none; zh 流水長者子品16 ↔ none). zh 232/241 (96%). Commit 20e92d4.
+Validation: refs unique + zh refs ⊆ texts refs ✓, tokens 100% Devanagari non-empty ✓, signature phrases per work ✓, JSON re-read ✓. Anomalies: inventory's "14 parivartas" undercounted (multi-word headers) → true count 20; bhai Skt "vaiḍūrya/vaidūrya" spelling varies in source, signatures normalized.
