@@ -277,10 +277,15 @@ export function mergeCtx(
   return ctx;
 }
 
-/** Load every analysis + gloss needed for these units (shards cached). */
-export async function prepare(units: Unit[]): Promise<RenderCtx> {
+/** Load every analysis + gloss needed for these units (shards cached).
+ *  `scope` = catalog work id — narrows the surface-index lookup to that
+ *  work's per-work slice when available. */
+export async function prepare(
+  units: Unit[],
+  scope?: string,
+): Promise<RenderCtx> {
   const forms = units.flatMap((u) => u.words);
-  const morph = await loadMorph(forms);
+  const morph = await loadMorph(forms, scope);
   const lemmas: string[] = [];
   for (const w of new Set(forms)) {
     for (const p of morph.get(stripAccents(w)) ?? []) lemmas.push(p.l);

@@ -29,6 +29,16 @@ Also rebuilds _surface_index.json corpus-wide: every Sanskrit catalog work's
 display tokens (exact shard-key hit, else longest resolving prefix >=4 —
 same stem-fallback rule as build_morph.emit_surface_index).
 
+Surface slices (frontend lazy lookup, src/api.ts surfaceKey/loadMorph) —
+SAME token->key shape as the monolith, split two ways:
+  _surface/<letter>.json         corpus-wide bucket per Devanagari initial
+                                 (SLICE_NAME below); universal fallback +
+                                 scope-less callers (lexicon box)
+  _surface/by-work/<id>.json     one catalog work's tokens; the small
+                                 primary slice fetched by the reader
+TODO(next release): stop writing _surface_index.json (kept one release as
+rollback/fallback cache) and delete it from public/data/morph/.
+
 Validation: per-work occurrence-weighted resolution % over the site's own
 text tokens (simulating loadMorph exactly) + a spot-check dump.
 
@@ -344,6 +354,114 @@ def emit_surface_index(shards):
     return toks_by_work, index
 
 
+# --- surface slices ----------------------------------------------------------
+# Client-side mirror of this table lives in src/api.ts (DEV_SLICE) — keep the
+# two EXACTLY in sync. Bucketing rule on both sides: scan the display token
+# left-to-right and use the FIRST character that maps. Tokens with no mapped
+# char are Latin/digit-initial; the frontend only consults slices for
+# Devanagari forms (/[\u0900-\u097f]/), so they are unreachable here anyway.
+SLICE_NAME = {
+    "\u0905": "a", "\u0906": "aa", "\u0907": "i", "\u0908": "ii",
+    "\u0909": "u", "\u090a": "uu", "\u090b": "r", "\u0960": "r",
+    "\u090c": "l", "\u0961": "l",
+    "\u090f": "e", "\u0910": "ai", "\u0913": "o", "\u0914": "au",
+    "\u0950": "om",  # om-initial tokens
+    "\u093d": "z",   # avagraha-initial tokens (elision marks)
+    # consonants (nukta precomposites fold into their base letter bucket)
+    "\u0915": "k", "\u0958": "k",
+    "\u0916": "kh", "\u0959": "kh",
+    "\u0917": "g", "\u095a": "g",
+    "\u0918": "gh",
+    "\u0919": "ng",
+    "\u091a": "ch",
+    "\u091b": "chh",
+    "\u091c": "j", "\u095b": "j",
+    "\u091d": "jh",
+    "\u091e": "ny",
+    "\u091f": "t", "\u0924": "t",
+    "\u0920": "th", "\u0925": "th",
+    "\u0921": "d", "\u0926": "d", "\u095c": "d",
+    "\u0922": "dh", "\u0927": "dh", "\u095d": "dh",
+    "\u0923": "n", "\u0928": "n",
+    "\u092a": "p",
+    "\u092b": "ph", "\u095e": "ph",
+    "\u092c": "b",
+    "\u092d": "bh",
+    "\u092e": "m",
+    "\u092f": "y", "\u095f": "y",
+    "\u0930": "r",
+    "\u0932": "l", "\u0933": "l",
+    "\u0935": "v",
+    "\u0936": "sh",
+    "\u0937": "shh",
+    "\u0938": "s",
+    "\u0939": "h",
+}
+
+
+def initial_slice(tok):
+    """Slice name for a display token: first mapped char, else None."""
+    for ch in tok:
+        name = SLICE_NAME.get(ch)
+        if name:
+            return name
+    return None
+
+
+def _write_json(path: str, obj) -> int:
+    blob = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(blob)
+    return len(blob.encode("utf-8"))
+
+
+def emit_surface_slices(index, toks_by_work):
+    """Split the surface index into lazy per-letter + per-work slices."""
+    letters = {}
+    skipped = 0
+    for tok, key in index.items():
+        name = initial_slice(tok)
+        if name is None:
+            skipped += 1
+            continue
+        letters.setdefault(name, {})[tok] = key
+
+    by_work = {}
+    for wid, toks in toks_by_work.items():
+        sub = {t: index[t] for t in toks if t in index}
+        if sub:
+            by_work[wid] = sub
+
+    outdir = os.path.join(MORPH_DIR, "_surface")
+    workdir = os.path.join(outdir, "by-work")
+    os.makedirs(workdir, exist_ok=True)
+
+    expected = set()
+    total_bytes = 0
+    for name, bucket in sorted(letters.items()):
+        total_bytes += _write_json(os.path.join(outdir, f"{name}.json"), bucket)
+        expected.add(os.path.join(outdir, f"{name}.json"))
+    for wid, bucket in sorted(by_work.items()):
+        fp = os.path.join(workdir, f"{wid}.json")
+        total_bytes += _write_json(fp, bucket)
+        expected.add(fp)
+
+    # prune stale slices (renamed works / dropped buckets from older runs)
+    removed = 0
+    for fp in glob.glob(os.path.join(outdir, "**", "*.json"), recursive=True):
+        if fp not in expected:
+            os.remove(fp)
+            removed += 1
+
+    print(f"[surface-slices] {len(letters)} letter files "
+          f"({sum(len(b) for b in letters.values())} keys), "
+          f"{len(by_work)} per-work files "
+          f"({sum(len(b) for b in by_work.values())} keys), "
+          f"{total_bytes / 2**20:.1f} MB raw, "
+          f"{skipped} tokens skipped (non-Devanagari initial), "
+          f"{removed} stale pruned")
+
+
 # --- validation --------------------------------------------------------------
 
 WORK_OF_SITE_ID = {
@@ -401,6 +519,7 @@ def main() -> None:
     merge(shards)
     emit_shards(shards)
     toks_by_work, index = emit_surface_index(shards)
+    emit_surface_slices(index, toks_by_work)
     validate(toks_by_work, index, shards)
     spot_check(index, shards)
 

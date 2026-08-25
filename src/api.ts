@@ -110,7 +110,7 @@ export function loadPart(relPath: string): Promise<WorkPart> {
  */
 export function stripAccents(word: string): string {
   // Sanskrit build: tokens are Devanagari; shard keys are exact surface forms
-  // (resolved via data/morph/_surface_index.json in loadMorph), so do NOT
+  // (resolved via data/morph/_surface/*.json slices in loadMorph), so do NOT
   // NFD-strip Devanagari — it would destroy matras.
   if (/[\u0900-\u097f]/.test(word)) return word;
   const d = word.toLowerCase().normalize("NFD");
@@ -120,16 +120,94 @@ export function stripAccents(word: string): string {
   return s.replace(/ς/g, "σ");
 }
 
-// surface Devanagari token -> slp1 shard key (built by pipeline/build_morph.py)
-let surfaceIndex: Record<string, string> | null = null;
-async function surfaceKey(form: string): Promise<string | null> {
-  if (!/[\u0900-\u097f]/.test(form)) return stripAccents(form);
-  if (surfaceIndex === null) {
-    surfaceIndex = await fetchJSON<Record<string, string>>(
-      "data/morph/_surface_index.json",
-    ).catch(() => ({}));
+// surface Devanagari token -> slp1 shard key, via LAZY SLICES (built by
+// pipeline/build_morph_dcs.py):
+//   data/morph/_surface/<name>.json         corpus-wide, by Devanagari initial
+//   data/morph/_surface/by-work/<id>.json   one catalog work's tokens (small;
+//                                           the reader's primary slice)
+// The monolith _surface_index.json is no longer fetched (kept on disk one
+// release as a rollback artifact — TODO remove next release).
+type SurfaceSlice = Record<string, string>;
+
+// Devanagari initial char -> slice file name. MUST mirror SLICE_NAME in
+// pipeline/build_morph_dcs.py exactly; bucketing rule both sides: first
+// mapped char scanning the token left-to-right.
+const DEV_SLICE: Record<string, string> = {
+  "\u0905": "a", "\u0906": "aa", "\u0907": "i", "\u0908": "ii",
+  "\u0909": "u", "\u090a": "uu", "\u090b": "r", "\u0960": "r",
+  "\u090c": "l", "\u0961": "l",
+  "\u090f": "e", "\u0910": "ai", "\u0913": "o", "\u0914": "au",
+  "\u0950": "om",
+  "\u093d": "z",
+  "\u0915": "k", "\u0958": "k",
+  "\u0916": "kh", "\u0959": "kh",
+  "\u0917": "g", "\u095a": "g",
+  "\u0918": "gh",
+  "\u0919": "ng",
+  "\u091a": "ch",
+  "\u091b": "chh",
+  "\u091c": "j", "\u095b": "j",
+  "\u091d": "jh",
+  "\u091e": "ny",
+  "\u091f": "t", "\u0924": "t",
+  "\u0920": "th", "\u0925": "th",
+  "\u0921": "d", "\u0926": "d", "\u095c": "d",
+  "\u0922": "dh", "\u0927": "dh", "\u095d": "dh",
+  "\u0923": "n", "\u0928": "n",
+  "\u092a": "p",
+  "\u092b": "ph", "\u095e": "ph",
+  "\u092c": "b",
+  "\u092d": "bh",
+  "\u092e": "m",
+  "\u092f": "y", "\u095f": "y",
+  "\u0930": "r",
+  "\u0932": "l", "\u0933": "l",
+  "\u0935": "v",
+  "\u0936": "sh",
+  "\u0937": "shh",
+  "\u0938": "s",
+  "\u0939": "h",
+};
+
+/** Slice holding this form's entry, or null when no bucket applies. */
+function devSliceName(form: string): string | null {
+  for (const ch of form) {
+    const name = DEV_SLICE[ch];
+    if (name) return name;
   }
-  return surfaceIndex[form] ?? null;
+  return null;
+}
+
+/**
+ * Resolve one form against a scope slice when it loaded (authoritative:
+ * it holds every resolvable token of that work's text), else fall back to
+ * the corpus-wide letter slices. A missing/failed slice file just means
+ * lookups miss — never an error.
+ */
+async function surfaceKeyIn(
+  form: string,
+  scoped: Promise<SurfaceSlice | null>,
+): Promise<string | null> {
+  const slice = await scoped;
+  if (slice) return slice[form] ?? null;
+  const name = devSliceName(form);
+  if (!name) return null;
+  const letters = await fetchJSON<SurfaceSlice | null>(
+    `data/morph/_surface/${name}.json`,
+  ).catch(() => null);
+  return letters?.[form] ?? null;
+}
+
+async function surfaceKey(form: string, scope?: string): Promise<string | null> {
+  if (!/[\u0900-\u097f]/.test(form)) return stripAccents(form);
+  // fetchJSON dedupes concurrent calls for the same path and caches the
+  // promise in memory, so per-form calls here cost one network fetch total.
+  const scoped = scope !== undefined
+    ? fetchJSON<SurfaceSlice | null>(
+        `data/morph/_surface/by-work/${scope}.json`,
+      ).catch(() => null)
+    : Promise.resolve(null);
+  return surfaceKeyIn(form, scoped);
 }
 
 function isCombining(c: string): boolean {
@@ -185,12 +263,31 @@ async function loadShardMap<K, V>(
   return out;
 }
 
-/** Analyses for surface forms, keyed by accent-stripped form. */
-export async function loadMorph(forms: string[]): Promise<Map<string, Parse[]>> {
-  await surfaceKey("प्रारम्भ"); // ensure the surface index is cached
+/** Analyses for surface forms, keyed by accent-stripped form.
+ *
+ * `scope` = catalog work id: resolves against that work's small per-work
+ * slice (`_surface/by-work/<id>.json`) instead of the corpus-wide letter
+ * slices. Absent/failed slice files degrade to letter slices (scope-less
+ * callers, e.g. the lexicon box) and a miss is just "no parse". */
+export async function loadMorph(
+  forms: string[],
+  scope?: string,
+): Promise<Map<string, Parse[]>> {
+  const uniq = Array.from(new Set(forms));
+  if (scope === undefined) {
+    // warm every needed letter slice concurrently (fetchJSON dedupes) so
+    // the per-form loop below resolves from the in-memory cache
+    await Promise.all(
+      uniq.map((f) => {
+        const name = devSliceName(f);
+        return name === null ? null
+          : fetchJSON(`data/morph/_surface/${name}.json`).catch(() => null);
+      }),
+    );
+  }
   const out = new Map<string, Parse[]>();
-  for (const form of new Set(forms)) {
-    const key = await surfaceKey(form);
+  for (const form of uniq) {
+    const key = await surfaceKey(form, scope);
     if (!key) continue;
     const l = key[0];
     if (!l) continue;

@@ -409,7 +409,11 @@ async function loadNextPage(state: ReaderState): Promise<void> {
       return;
     }
     const batch = state.buffer.splice(0, PAGE_UNITS);
-    const freshCtx = await prepare(batch);
+    // Pali works skip the Devanagari morph pipeline — no slice to fetch.
+    const scope = catalogLang(state.work, state.author) === "pi"
+      ? undefined
+      : state.work.id;
+    const freshCtx = await prepare(batch, scope);
     mergeCtx(state.ctx, freshCtx.morph, freshCtx.gloss);
     // Morph coverage currently spans the Bhagavadgītā analysis only; other
     // works would render mostly silent "—" columns. Say so once, explicitly,
