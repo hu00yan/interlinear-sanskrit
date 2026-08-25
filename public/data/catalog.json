@@ -385,6 +385,27 @@
        "trans/pali-dn-sujato.json"
       ]
      }
+    },
+    {
+     "id": "pali-mn",
+     "title": "Majjhima Nikāya",
+     "titleZh": "中部经典",
+     "urn": "urn:pali:pali-mn",
+     "lang": "pi",
+     "kind": "prose",
+     "license": "CC0",
+     "files": [
+      "texts/pali/mn.json"
+     ],
+     "unitCount": 73,
+     "translation": {
+      "translator": "Bhikkhu Sujato",
+      "year": 2018,
+      "license": "CC0",
+      "files": [
+       "trans/pali-mn-sujato.json"
+      ]
+     }
     }
    ]
   },
