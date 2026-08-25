@@ -697,6 +697,28 @@
       ],
       "alignment": "loose"
      }
+    },
+    {
+     "id": "kumarasambhava",
+     "title": "Kumārasambhava",
+     "titleZh": "鸠摩罗出世",
+     "urn": "urn:sanskrit:kumarasambhava",
+     "license": "GRETIL CC BY-NC-SA 4.0 (text)",
+     "kind": "verse",
+     "files": [
+      "texts/kavya/kumarasambhava.json"
+     ],
+     "unitCount": 612,
+     "edition": "Podzeit (GRETIL corpustei), 8-sarga pariyāpta recension (60+63+76+46+86+95+95+91 verses); the 17-sarga ādirūpa recension is a separate tradition",
+     "translation": {
+      "translator": "Ralph T. H. Griffith",
+      "year": 1879,
+      "license": "Public domain",
+      "files": [
+       "trans/kumarasambhava.json"
+      ],
+      "alignment": "canto"
+     }
     }
    ]
   },

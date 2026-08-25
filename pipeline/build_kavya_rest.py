@@ -147,7 +147,7 @@ def build_ks_text():
     return build_lg_xml(
         "kumarasambhava", "Kālidāsa", "Kumārasambhava", src,
         r"Ks_(\d+)\.(\d+)",
-        spot=[["तथा", "समक्षम्", "दहता", "मनोभवम्"]])
+        spot=[["तथा", "समक्षं", "दहता", "मनोभवम्"], ["पिनाकिना", "पार्वती"]])
 
 
 def build_st_text():
@@ -331,25 +331,35 @@ def build_ks_trans():
     end = s.find("TRANSCRIBER'S NOTES")
     seg = s[start:end]
     parts = re.split(r"\n(?:Canto (\w+)\.)\n", seg)
-    names = list(ORD)[:len(parts) // 2]
+    # parts[0] = full Canto First body; then alternating name/body pairs
+    bodies = [parts[0]] + [parts[i + 1] for i in range(1, len(parts), 2)]
     units = []
-    for ci, name in enumerate(names, 1):
-        body = parts[ci * 2]
+    for ci, body in enumerate(bodies, 1):
+        body = re.sub(r"^Canto \w+\.\s*", "", body)
+        for cut in ("\nNOTE", "THE END."):
+            body = body.split(cut)[0]
         body = re.sub(r'^\s*_+[^_\n]+_+\s*', '', body)      # subtitle italics
-        stanzas = [b for b in re.split(r"\n\s*\n", body) if b.strip()]
-        for si, st in enumerate(stanzas, 1):
-            txt = "\n".join(ln.strip() for ln in st.strip().split("\n"))
-            txt = txt.strip('"')
-            if txt:
-                units.append({"ref": f"{ci}.{si}", "text": txt})
-    got = {}
-    for u in units:
-        got[u["ref"].split(".")[0]] = got.get(u["ref"].split(".")[0], 0) + 1
-    print(f"[rest] griffith KuS stanza/canto: {got} vs GRETIL "
-          f"{dict(zip(range(1, 8), [60, 63, 76, 46, 86, 95]))}")
+        paras, cur = [], None
+        for ln in body.split("\n"):
+            st = ln.strip()
+            if not st:
+                continue
+            if ln.startswith("    ") or cur is None:        # stanza initial
+                cur = [st]
+                paras.append(cur)
+            elif st.isupper():
+                continue                                    # stray headings
+            else:
+                cur.append(st)
+        txt = "\n".join("\n".join(p) for p in paras)
+        units.append({"ref": str(ci), "text": re.sub(r"\n{3,}", "\n\n",
+                                                     txt).strip()})
+    print(f"[rest] griffith KuS: {len(units)} canto-level units, "
+          f"{sum(len(u['text'].split()) for u in units)} words "
+          f"(GRETIL sargas 1-8; canto 8 uncovered)")
     return {
         "workId": "kumarasambhava", "translator": "Ralph T. H. Griffith",
-        "year": 1879, "license": "Public domain", "alignment": "loose",
+        "year": 1879, "license": "Public domain", "alignment": "canto",
         "units": units,
         "source": {"site": "Project Gutenberg ebook 31968",
                    "title": "The Birth of the War-God: A Poem by Kálidása, "
@@ -357,11 +367,11 @@ def build_ks_trans():
         "notes": [
             "Metrical verse rendering of cantos 1-7 only; Griffith's edition "
             "does not cover sarga 8.",
-            "Griffith's stanzas are remapped positionally onto the GRETIL "
-            "(Podzeit) sarga.v verse order within each canto; stanza counts "
-            "differ slightly per canto, so tail verses may lack English.",
-            "Griffith followed Stenzler's edition; minor verse-order/reading "
-            "divergences from Podzeit are expected."],
+            "Units are canto-level (refs = sarga numbers 1-7): the PG etext's "
+            "typesetting does not reliably mark Griffith's stanza boundaries, "
+            "so per-verse positional mapping would be fabricated.",
+            "Griffith followed Stenzler's edition; minor reading divergences "
+            "from the GRETIL Podzeit text are expected."],
     }
 
 
@@ -517,7 +527,7 @@ WORKS = {
                  "license": "Public domain",
                  "files": [rel(os.path.join(OUT_TRANS,
                                             "kumarasambhava.json"))],
-                 "alignment": "loose"}})),
+                 "alignment": "canto"}})),
 }
 
 
