@@ -1421,6 +1421,20 @@
       ],
       "alignment": "sutra"
      }
+    },
+    {
+     "id": "nyaya-sutra",
+     "title": "Nyāyasūtra",
+     "titleZh": "正理经",
+     "urn": "urn:sanskrit:darshana/nyaya-sutra",
+     "kind": "prose",
+     "license": "GRETIL CC BY-NC-SA 4.0 (text)",
+     "files": [
+      "texts/darshana/nyaya-sutra.json"
+     ],
+     "unitCount": 533,
+     "edition": "GRETIL corpustei e-text",
+     "translation": null
     }
    ]
   }
