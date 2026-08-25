@@ -184,6 +184,26 @@
       ],
       "alignment": "verse"
      }
+    },
+    {
+     "id": "kausitaki-upanishad",
+     "title": "Kauṣītaki Upaniṣad",
+     "titleZh": "侨尸多基奥义书",
+     "urn": "urn:sanskrit:upanishad/kausitaki-upanishad",
+     "license": "Wikisource CC BY-SA 4.0 (text)",
+     "files": [
+      "texts/upanishads/kausitaki-upanishad.json"
+     ],
+     "unitCount": 72,
+     "translation": {
+      "translator": "Robert Ernest Hume",
+      "year": 1921,
+      "license": "Public domain (Hume 1921)",
+      "files": [
+       "trans/kausitaki-upanishad-hume.json"
+      ],
+      "alignment": "verse"
+     }
     }
    ]
   },
