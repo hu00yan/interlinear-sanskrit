@@ -301,6 +301,27 @@
        "trans/pali-itivuttaka-sujato.json"
       ]
      }
+    },
+    {
+     "id": "pali-suttanipata",
+     "title": "Sutta Nipāta",
+     "titleZh": "经集",
+     "urn": "urn:pali:pali-suttanipata",
+     "lang": "pi",
+     "kind": "verse",
+     "license": "CC0",
+     "files": [
+      "texts/pali/suttanipata.json"
+     ],
+     "unitCount": 73,
+     "translation": {
+      "translator": "Bhikkhu Sujato",
+      "year": 2018,
+      "license": "CC0",
+      "files": [
+       "trans/pali-suttanipata-sujato.json"
+      ]
+     }
     }
    ]
   },
