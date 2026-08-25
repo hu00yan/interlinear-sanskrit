@@ -1322,6 +1322,34 @@
      "translation": null
     }
    ]
+  },
+  {
+   "name": "Somadeva",
+   "key": "somadeva",
+   "works": [
+    {
+     "id": "vetalapancavimsati",
+     "title": "Vetālapañcaviṃśatikā (Śaśāṅkavatīlambaka)",
+     "titleZh": "僵尸鬼故事二十五则",
+     "urn": "urn:sanskrit:vetalapancavimsati",
+     "license": "Wikisource CC BY-SA 4.0 (text)",
+     "kind": "verse",
+     "files": [
+      "texts/kavya/vetalapancavimsati.json"
+     ],
+     "unitCount": 2209,
+     "edition": "sa.wikisource वेतालपञ्चविंशतिः = Somadeva, Kathāsaritsāgara lambaka 12 (taraṅgas 8-32), frame + 25 tales; wikisource page header attributes Somadeva",
+     "translation": {
+      "translator": "Arthur W. Ryder (Twenty-Two Goblins, parallel recension)",
+      "year": 1917,
+      "license": "Public domain",
+      "files": [
+       "trans/vetalapancavimsati.json"
+      ],
+      "alignment": "loose"
+     }
+    }
+   ]
   }
  ]
 }

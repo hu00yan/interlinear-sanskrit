@@ -205,6 +205,13 @@ def vetala_page(n):
     b = re.sub(r"\{\{header[^}]*\}\}", "", wt, flags=re.S)
     b = b.split("##[[")[0]
     b = b.split("\n==")[0]
+    if n in (1, 16, 18):
+        # these pages carry TWO renderings back to back (sandhit + word-split);
+        # keep the first copy -> cut at the first pure-Devanagari tale.tarañga.v
+        # reference, which only occurs in the second copy
+        m = re.search(r"[\u0966-\u096f]+(?:\.[\u0966-\u096f]+){2}", b)
+        if m:
+            b = b[:m.start()]
     lines = []
     for ln in b.split("\n"):
         s = ln.strip()
@@ -249,7 +256,7 @@ def build_vp_text():
     return {"id": "vetalapancavimsati",
             "author": "Somadeva",
             "title": "Vetālapañcaviṃśatikā (Śaśāṅkavatīlambaka, KSS 12)",
-            "kind": "mixed", "alignment": "surface-form", "units": units}
+            "kind": "verse", "alignment": "surface-form", "units": units}
 
 
 # --- English translation builders -------------------------------------------
@@ -380,18 +387,18 @@ def build_vp_trans():
     tales = {}
     for i in range(len(NUMW)):
         blk = seg[heads[i]:heads[i + 1]]
-        ln = blk.split("\n")
-        body = [x for x in ln[1:] if x.strip() and not x.strip().startswith("_")]
-        txt = re.sub(r"\s+", " ", " ".join(body)).strip()
-        tales[i + 1] = txt
+        txt = re.sub(r"\s+", " ", blk[len(NUMW[i]) + 7:])
+        txt = re.sub(r"^.*?\?_\s*", "", txt)          # italicised title line
+        txt = re.sub(r"\*\s*\*(?:\s*\*)*", "", txt)   # scene separators
+        tales[i + 1] = txt.strip()
     units = []
     mapping = {}
     for ryder_no, our_no in sorted(RYDER_MAP.items()):
         units.append({"ref": str(our_no), "text": tales[ryder_no]})
         mapping[ryder_no] = our_no
     print(f"[rest] ryder mapped {len(units)}/22 tales -> KSS tales "
-          f"{sorted(mapping.values())}; unmapped Ryder: "
-          f"{sorted(set(RYDER_MAP) | set(range(1, 23)) - set(RYDER_MAP))}")
+          f"{sorted(mapping.values())}; unmapped Ryder tales: "
+          f"{sorted(set(range(1, 23)) - set(RYDER_MAP))}")
     return {
         "workId": "vetalapancavimsati", "translator": "Arthur W. Ryder",
         "year": 1917, "license": "Public domain", "alignment": "loose",
@@ -479,7 +486,7 @@ WORKS = {
              "title": "Vetālapañcaviṃśatikā (Śaśāṅkavatīlambaka)",
              "titleZh": "僵尸鬼故事二十五则",
              "urn": "urn:sanskrit:vetalapancavimsati",
-             "license": "Wikisource CC BY-SA 4.0 (text)", "kind": "mixed",
+             "license": "Wikisource CC BY-SA 4.0 (text)", "kind": "verse",
              "files": [rel(os.path.join(OUT_KAVYA,
                                         "vetalapancavimsati.json"))],
              "unitCount": len(t["units"]),
