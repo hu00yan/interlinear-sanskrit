@@ -56,6 +56,9 @@ export interface ZhFile {
 export interface TlLayerHandle {
   /** Idempotent: paints/clears tl-lines over every [data-ref] row. */
   sync(): Promise<void>;
+  /** Sidebar view owns the translation stream while active — inline
+   *  zh lines are suppressed (and cleared) until re-enabled. */
+  setSuppressed(b: boolean): void;
 }
 
 const lsKey = (workId: string): string => `tl-layer:${workId}`;
@@ -72,6 +75,14 @@ function storeMode(workId: string, m: TlMode): void {
   try {
     localStorage.setItem(lsKey(workId), m);
   } catch { /* private mode etc. — persistence is best-effort */ }
+  // sidebar (and anything else rendering the translation stream) follows
+  window.dispatchEvent(new CustomEvent("tl-mode", { detail: m }));
+}
+
+/** ref -> zh text map for this work's trans-zh files (null = unavailable).
+ *  Shared with the sidebar view; failures resolve null. */
+export function loadZhMap(files: string[]): Promise<Map<string, string> | null> {
+  return loadZh(files);
 }
 
 /** Defensive extraction: null unless translationZh carries usable files. */
@@ -215,6 +226,7 @@ export function setupTranslationLayer(
   let mode: TlMode = storedMode(work.id);
   let gen = 0; // bumps per mode change; stale async syncs bail out
   let zhFileMeta: ZhFile | null | "unloaded" = "unloaded";
+  let suppressed = false; // sidebar view owns the stream while true
 
   // -- segmented control (reuses .theme-ctl geometry via shared class) ------
   const wrap = el("span", "theme-ctl tl-ctl");
@@ -313,6 +325,13 @@ export function setupTranslationLayer(
     const body = opts.getBody();
     if (!body || !body.isConnected) return;
     const myGen = gen;
+    if (suppressed) {
+      // sidebar owns the translation stream — keep inline rows clean
+      for (const row of Array.from(
+        body.querySelectorAll<HTMLElement>('[data-tl="zh"]'),
+      )) clearRow(row);
+      return;
+    }
     if (mode === "en") {
       for (const row of Array.from(
         body.querySelectorAll<HTMLElement>('[data-tl="zh"]'),
@@ -362,7 +381,13 @@ export function setupTranslationLayer(
 
   if (mode === "zh") void sync(); // persisted choice restored lazily
 
-  return { sync };
+  return {
+    sync,
+    setSuppressed(b: boolean): void {
+      suppressed = b;
+      void sync(); // repaint inline rows (clears them while suppressed)
+    },
+  };
 }
 
 /** Existing English translation files of a work (may be absent). */

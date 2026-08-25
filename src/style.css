@@ -541,6 +541,123 @@ body.hide-gloss .gloss { display: none; }
 /* diff badges inherit the same dual stacking inside their chip frame */
 .diff-badge .feat-dual { gap: 0; }
 
+/* ---- compound-member (samāsa) mini-rows ---------------------------------
+ * One row per member: dual-script form · inflection tags · MW gloss.
+ * Rendered under parse cards / in the word panel when the morph shard
+ * carries a member chain (Parse.m, emitted by build_morph_dcs.py). */
+.compound {
+  margin-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  padding-top: 3px;
+}
+.comp-head { margin: 2px 0 3px; }
+.comp-member {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 2px 0;
+}
+.comp-member + .comp-member {
+  border-top: 1px dotted color-mix(in srgb, var(--border) 55%, transparent);
+}
+.comp-form { font-size: 0.95em; }
+.comp-feats { font-size: 0.66rem; }
+.comp-gloss {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.comp-gloss.comp-nogloss { color: var(--faint); }
+.comp-plus { color: var(--faint); font-size: 0.7rem; }
+
+/* ---- sidebar translation view (行间 | 侧栏) ------------------------------
+ * 侧栏: the translation stream lives in a fixed right column; #app is
+ * squeezed by --sb-w so nothing hides beneath it. The divider drags the
+ * width (min 240px / max 50vw), remembered per work (sidebar.ts). */
+:root { --sb-w: 400px; }
+body.sidebar-view #app {
+  margin-right: var(--sb-w);
+}
+.tr-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: var(--sb-w);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow: var(--shadow-drawer-r);
+  padding: 0;
+  z-index: 30;
+}
+.tr-sidebar.hidden, .sb-divider.hidden { display: none; }
+.tr-sidebar-head {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 16px 10px;
+  background: var(--surface);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 65%, transparent);
+}
+.tr-sidebar-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.tr-sidebar-credit {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tr-sidebar-body { padding: 8px 16px 24px; }
+.sb-row { padding: 7px 4px; border-radius: var(--radius-s); }
+.sb-row + .sb-row { border-top: 1px dotted color-mix(in srgb, var(--border) 45%, transparent); }
+.sb-row.current { background: var(--surface-2); }
+.sb-row .tr-ref { display: inline-block; margin-right: 8px; }
+.sb-row .tr-text { display: inline; }
+/* the English drawer button is meaningless while the sidebar shows the
+   stream — hide it to keep the toolbar honest */
+body.sidebar-view .tr-toggle { display: none; }
+/* draggable divider between reader and sidebar */
+.sb-divider {
+  position: fixed;
+  top: 0;
+  right: var(--sb-w);
+  height: 100vh;
+  width: 8px;
+  transform: translateX(4px);
+  cursor: col-resize;
+  z-index: 31;
+  touch-action: none;
+}
+.sb-divider::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  opacity: 0.65;
+}
+.sb-divider:hover::after, .sb-divider.dragging::after {
+  background: var(--accent);
+  opacity: 1;
+}
+body.sb-resizing { cursor: col-resize; user-select: none; }
+
 /* dual-script lemmas/headwords (parse cards, panel, lookup + drawer):
    .lemma keeps its warm italic look; the IAST span carries it, the
    Devanagari span stacks beneath, muted + smaller. */
@@ -1271,6 +1388,7 @@ body.show-prosody .scansion {
 @media (max-width: 48rem) {
   body.lexicon-open #app,
   body.translation-open #app,
+  body.sidebar-view #app,
   body.panel-open #app,
   body.lexicon-open.translation-open #app {
     margin-left: auto;

@@ -168,6 +168,33 @@ function buildHeadbar(title: string, onClose: () => void): El {
   return bar;
 }
 
+/** Fetch + normalize a work's English translation files into ordered
+ *  {ref,text} pairs. Shared by the drawer (openTranslation) and the
+ *  sidebar view. Throws on fetch failure — callers degrade gracefully. */
+export async function loadTranslationUnits(
+  files: string[],
+): Promise<Array<{ ref: string; text: string }>> {
+  const parts = await Promise.all(
+    files.map((f) =>
+      fetchJSON<WorkPart & {
+        units: Array<Unit & { text?: string; w?: string }>;
+      }>(`data/${f}`)),
+  );
+  const out: Array<{ ref: string; text: string }> = [];
+  for (const p of parts) {
+    for (const u of Array.isArray(p.units) ? p.units : []) {
+      if (typeof u.text === "string") {
+        out.push({ ref: u.ref ?? "", text: u.text });
+      } else if (Array.isArray((u as Unit).words)) {
+        out.push({ ref: u.ref ?? "", text: (u as Unit).words.join(" ") });
+      } else if (typeof u.w === "string") {
+        out.push({ ref: u.ref ?? "", text: u.w });
+      }
+    }
+  }
+  return out;
+}
+
 export async function openTranslation(
   work: CatalogWork,
   greekUnits: () => Unit[],

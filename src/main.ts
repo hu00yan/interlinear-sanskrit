@@ -23,6 +23,7 @@ import {
   continueReadingSection, getRecent, saveRecent, setUnitContext,
 } from "./bookmarks";
 import { setupTranslationLayer, type TlLayerHandle } from "./zh-layer";
+import { setupSidebar, type SidebarHandle } from "./sidebar";
 
 const app = document.getElementById("app") as HTMLElement;
 
@@ -197,6 +198,8 @@ interface ReaderState {
   /** Chinese translation layer when this work ships translationZh
    *  (null/absent otherwise — no DOM impact). */
   tl?: TlLayerHandle | null;
+  /** Sidebar translation view handle (null when no translation ships). */
+  sb?: SidebarHandle | null;
 }
 
 const PAGE_UNITS = PAGE_SIZE;
@@ -334,6 +337,14 @@ async function openReader(
     anchor: () => body,
     getBody: () => state.body,
   });
+  // 行间 | 侧栏 view-mode control + draggable translation sidebar
+  // (no-ops entirely on works without any translation)
+  state.sb = setupSidebar(work, {
+    controls: controls.root,
+    getBody: () => state.body,
+    getUnits: () => allUnits,
+    tl: state.tl,
+  });
   prev.addEventListener("click", () => void turnPage(state, -1));
   next.addEventListener("click", () => void turnPage(state, +1));
   jump.addEventListener("keydown", (e) => {
@@ -447,6 +458,7 @@ async function loadNextPage(state: ReaderState): Promise<void> {
     state.pages.push({ rows: batch.length });
     state.renderedUnits += batch.length;
     void state.tl?.sync(); // paint/clear zh lines on freshly rendered rows
+    void state.sb?.refresh(); // sidebar stream follows newly rendered pages
   } catch (e) {
     state.pager.info.textContent = `Load failed: ${(e as Error).message}`;
     state.atEnd = true;
