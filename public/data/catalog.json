@@ -280,6 +280,27 @@
        "trans/pali-udana-sujato.json"
       ]
      }
+    },
+    {
+     "id": "pali-itivuttaka",
+     "title": "Itivuttaka",
+     "titleZh": "自说经",
+     "urn": "urn:pali:pali-itivuttaka",
+     "lang": "pi",
+     "kind": "prose",
+     "license": "CC0",
+     "files": [
+      "texts/pali/itivuttaka.json"
+     ],
+     "unitCount": 112,
+     "translation": {
+      "translator": "Bhikkhu Sujato",
+      "year": 2018,
+      "license": "CC0",
+      "files": [
+       "trans/pali-itivuttaka-sujato.json"
+      ]
+     }
     }
    ]
   },
