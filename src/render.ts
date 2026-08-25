@@ -7,7 +7,8 @@ import { openLexicon, lexiconButton } from "./lexicon";
 import { themeControl } from "./theme";
 import { disp, registerUnitScripts, scriptPrefControls,
   scriptPrefs } from "./display";
-import { iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
+import { devToIast, iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
+import type { AnalyzeCandidate, AnalyzeResult } from "./parser-wasm";
 
 const glossShards = new Map<string, Record<string, Gloss> | null>();
 async function loadGlossShard(letter: string):
@@ -313,6 +314,7 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     } else {
       col.appendChild(el("span", "noparse", "—"));
     }
+    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
     return;
   }
 
@@ -327,6 +329,7 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
       `${order.length} analyses for ${word}; click to show all`);
     chip.addEventListener("click", () => toggleExpanded(word, ctx));
     col.appendChild(chip);
+    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
     return;
   }
 
@@ -342,6 +345,7 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     candidateRow(parses[i], i, groups.get(stripAccents(parses[i].l))!, ctx)
       .forEach((node) => col.appendChild(node));
   }
+  appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 
 /**
@@ -379,6 +383,288 @@ function parseCard(p: Parse, ctx: RenderCtx, col: El): void {
   const g = ctx.gloss.get(stripAccents(p.l));
   card.appendChild(el("div", "gloss", g ? g.g : ""));
   col.appendChild(card);
+}
+
+/* ---------------- wasm deep parse (opt-in enhancement) ----------------
+ * Client-side sandhi split + morphology via public/wasm/webdemo.wasm,
+ * gated behind ?wasm=1 / localStorage wasmParser=1. Flag OFF ⇒ not even
+ * the module chunk is fetched and fillParseCol output is byte-identical
+ * to pre-wasm rendering. Any failure degrades silently back to the shard
+ * path — the entry button removes itself rather than dead-ending.
+ * KI-10 honesty fields (integration-guide §3.1) are read defensively:
+ * artifacts older than W2c omit them, in which case no badge renders. */
+
+/** KI-10 fields on top of the typed facade (optional, may be absent). */
+type DeepCand = AnalyzeCandidate & {
+  level?: string;
+  attestation?: string[];
+  undetermined?: boolean;
+};
+
+function wasmFlagOn(): boolean {
+  try {
+    if (new URLSearchParams(location.search).has("wasm")) return true;
+    return localStorage.getItem("wasmParser") === "1";
+  } catch {
+    return false;
+  }
+}
+
+type WasmMod = typeof import("./parser-wasm");
+let wasmModPromise: Promise<WasmMod | null> | null = null;
+function wasmMod(): Promise<WasmMod | null> {
+  if (!wasmModPromise) {
+    wasmModPromise = import("./parser-wasm").catch(() => null);
+  }
+  return wasmModPromise;
+}
+
+/* Facade-first with a direct-load fallback. The kit's static capability
+ * probe (parser-wasm.ts PROBE_BYTES) mis-encodes its type section, so
+ * WebAssembly.validate rejects it in EVERY runtime — including ones that
+ * instantiate the real artifact fine — and initParser() resolves false
+ * everywhere until that's fixed upstream. deepInit() therefore keeps a
+ * private loader using the exact integration-guide §2 three-line pattern;
+ * the facade path is still tried first and resumes automatically once the
+ * probe is repaired. All failures resolve false / null — never throw. */
+
+interface DeepExports {
+  analyze_word(deva: string): string;
+  morph_lookup(deva: string): string;
+}
+let deepExp: DeepExports | null = null;
+let deepInitPromise: Promise<boolean> | null = null;
+
+function deepInit(): Promise<boolean> {
+  if (!deepInitPromise) {
+    deepInitPromise = (async () => {
+      try {
+        const url = new URL("wasm/webdemo.wasm", document.baseURI).href;
+        const res = await fetch(url);
+        if (!res.ok) return false;
+        // arrayBuffer(), not instantiateStreaming: immune to wrong
+        // Content-Type (integration-guide §2)
+        const bytes = await res.arrayBuffer();
+        const inst3 = WebAssembly.instantiate as unknown as (
+          b: BufferSource,
+          i: WebAssembly.Imports,
+          o: { builtins: string[]; importedStringConstants: string },
+        ) => Promise<WebAssembly.WebAssemblyInstantiatedSource>;
+        const { instance } = await inst3(bytes, {}, {
+          builtins: ["js-string"],
+          importedStringConstants: "_",
+        });
+        const e = instance.exports as unknown as DeepExports;
+        if (typeof e.analyze_word !== "function") return false;
+        deepExp = e;
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+  }
+  return deepInitPromise;
+}
+
+async function deepReady(): Promise<boolean> {
+  const m = await wasmMod();
+  if (m && (await m.initParser())) return true; // facade healthy (post-fix)
+  return deepInit(); // private fallback loader
+}
+
+/** analyzeWord via the healthy path (facade or fallback); null ⇒ degrade. */
+async function deepAnalyze(deva: string): Promise<AnalyzeResult | null> {
+  if (!(await deepReady())) return null;
+  const m = await wasmMod();
+  const viaFacade = m ? m.analyzeWord(deva) : null;
+  if (viaFacade && viaFacade.candidates.length > 0) return viaFacade;
+  if (!deepExp) return viaFacade;
+  try {
+    const v = JSON.parse(deepExp.analyze_word(deva)) as AnalyzeResult | null;
+    if (!v || !Array.isArray(v.candidates)) return null;
+    return v.candidates.every((c) => c && Array.isArray(c.parts_deva) &&
+      Array.isArray(c.parts_iast))
+      ? v
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+interface MorphRow {
+  lemma_iast?: string;
+  lemma_deva?: string;
+  pos?: string;
+  feats?: string[];
+}
+
+/** morphLookup via the healthy path (facade or fallback). */
+async function deepMorph(
+  part: string,
+): Promise<{ found: boolean; rows: MorphRow[] } | null> {
+  if (!(await deepReady())) return null;
+  const m = await wasmMod();
+  const mr = m ? m.morphLookup(part) : null;
+  if (mr) {
+    return mr.found
+      ? { found: true, rows: mr.analyses }
+      : { found: false, rows: [] };
+  }
+  if (!deepExp) return null;
+  try {
+    const v = JSON.parse(deepExp.morph_lookup(part)) as
+      | { found?: boolean; analyses?: MorphRow[] }
+      | null;
+    if (!v || typeof v.found !== "boolean" || !Array.isArray(v.analyses)) {
+      return null;
+    }
+    return { found: v.found, rows: v.analyses };
+  } catch {
+    return null;
+  }
+}
+
+/** Idle-time warmup so the first click skips the ~80 ms cold start.
+ *  Idempotent; a no-op unless the flag is on. */
+let wasmWarmed = false;
+function warmWasmParser(): void {
+  if (wasmWarmed || !wasmFlagOn()) return;
+  wasmWarmed = true;
+  const g = globalThis as {
+    requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
+  };
+  const kick = () => void wasmMod().then(() => deepReady()).catch(() => {});
+  if (typeof g.requestIdleCallback === "function") {
+    g.requestIdleCallback(kick, { timeout: 3000 });
+  } else {
+    setTimeout(kick, 200);
+  }
+}
+
+/** Devanagari form for the parser (tokens may ship as IAST); "" when the
+ *  view has no Devanagari reality (Pali renders Roman-only). */
+function devaForm(word: string): string {
+  if (viewLang === "pi") return "";
+  return disp(word, "deva");
+}
+
+/** The per-word entry chip. Appends nothing when the flag is off or the
+ *  view language can't feed the Devanagari parser. */
+function appendDeepEntry(col: El, word: string): void {
+  if (!wasmFlagOn() || viewLang === "pi") return;
+  warmWasmParser();
+  const b = el("button", "more-chip wasm-deep-btn", "深度解析") as HTMLButtonElement;
+  b.type = "button";
+  b.title = "Deep sandhi analysis (client-side wasm)";
+  b.setAttribute("aria-label", `Deep analysis of ${word}`);
+  b.addEventListener("click", () => void toggleDeep(col, word));
+  col.appendChild(b);
+}
+
+async function toggleDeep(col: El, word: string): Promise<void> {
+  const prev = col.querySelector(":scope > .wasm-deep");
+  if (prev) {
+    prev.remove(); // second click collapses
+    return;
+  }
+  const btn = col.querySelector(":scope > .wasm-deep-btn") as HTMLButtonElement | null;
+  const box = el("div", "pcard wasm-deep");
+  box.setAttribute("aria-live", "polite");
+  box.textContent = "…";
+  col.appendChild(box);
+  const deva = devaForm(word);
+  const res = deva ? await deepAnalyze(deva) : null;
+  if (!box.isConnected) return; // column re-rendered meanwhile
+  if (!res || res.candidates.length === 0) {
+    // 静默降级：撤除入口，回到既有 shard 路径，绝不阻塞
+    box.remove();
+    btn?.remove();
+    return;
+  }
+  box.replaceChildren(...deepChildren(res));
+}
+
+function deepChildren(res: AnalyzeResult): El[] {
+  const out: El[] = [];
+  for (const c of res.candidates as DeepCand[]) {
+    const row = el("div", "pcard cand-row wasm-cand");
+    const head = el("div", "cand-head");
+    // KI-10 undetermined → dashed frame + 「未裁定」ribbon
+    if (c.undetermined) {
+      row.style.borderTop = "none";
+      row.style.border = "1px dashed var(--border-strong)";
+      row.style.borderRadius = "var(--radius-s)";
+      row.style.padding = "4px 6px";
+      head.appendChild(el("span", "diff-badge", "未裁定"));
+    }
+    // KI-10 level Low → amber dot (spk0 adapts to both themes)
+    if (c.level === "Low" || c.level === "NoIdea") {
+      const dot = el("span");
+      dot.style.cssText =
+        "display:inline-block;width:8px;height:8px;border-radius:999px;background:var(--spk0,#b45309);flex:none;";
+      dot.title = `confidence ${c.level}`;
+      dot.setAttribute("aria-label", `confidence ${c.level}`);
+      head.appendChild(dot);
+    }
+    // candidate parts: clickable chips feeding morph_lookup
+    for (let j = 0; j < c.parts_deva.length; j++) {
+      if (j > 0) head.appendChild(el("span", undefined, "+"));
+      const part = elDisp("span", "lemma w wasm-part", c.parts_deva[j]);
+      part.title = `${c.parts_iast[j] ?? ""} — click for morphology`;
+      // KI-10 attestation ParadigmOnly → 「仅理论存在」corner tag
+      if (c.attestation && c.attestation[j] === "ParadigmOnly") {
+        const po = el("span", "diff-badge", "仅理论存在");
+        po.style.cssText = "font-size:0.56rem;padding:1px 3px;margin-left:2px;";
+        po.title = "ParadigmOnly — 形状合法但词库未见";
+        part.appendChild(po);
+      }
+      part.addEventListener("click", () =>
+        void toggleMorph(row, c.parts_deva[j] ?? "", c.parts_iast[j] ?? ""));
+      head.appendChild(part);
+    }
+    row.appendChild(head);
+    const hits = typeof c.hits === "number" ? c.hits : 0;
+    const members = typeof c.members === "number" ? c.members : c.parts_deva.length;
+    row.appendChild(el("div", "feats",
+      `hits ${hits}/${members}${res.total > res.candidates.length ? ` · of ${res.total}` : ""}`));
+    out.push(row);
+  }
+  return out;
+}
+
+/** Part-chip click: wasm morph_lookup inline (entry/drawer vocabulary),
+ *  plus a jump into the existing lexicon drawer. */
+async function toggleMorph(row: El, partDeva: string, partIast: string): Promise<void> {
+  const prev = row.querySelector(":scope > .wasm-morph");
+  if (prev) {
+    prev.remove();
+    return;
+  }
+  const block = el("div", "wasm-morph");
+  block.style.marginTop = "4px";
+  block.textContent = "…";
+  row.appendChild(block);
+  const mr = await deepMorph(partDeva);
+  if (!block.isConnected) return;
+  block.replaceChildren();
+  const rows = (mr?.rows ?? []).filter((a) =>
+    a && typeof a.pos === "string" && Array.isArray(a.feats));
+  if (!mr || !mr.found || rows.length === 0) {
+    // honest miss — not an error
+    block.appendChild(el("div", "noparse", "morph 子集未收录"));
+    return;
+  }
+  for (const a of rows.slice(0, 4)) {
+    const entry = el("div", "entry");
+    entry.appendChild(elDisp("span", "lemma",
+      a.lemma_iast || a.lemma_deva || `(${a.pos})`));
+    entry.appendChild(el("div", "feats", [a.pos, ...(a.feats ?? [])].join(" · ")));
+    block.appendChild(entry);
+  }
+  const jump = el("button", undefined, "Lexicon ↗") as HTMLButtonElement;
+  jump.type = "button";
+  jump.addEventListener("click", () => openLexicon(partIast || devToIast(partDeva)));
+  block.appendChild(jump);
 }
 
 /** Render interlinear units into container.
