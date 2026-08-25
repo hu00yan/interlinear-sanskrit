@@ -13,6 +13,7 @@ import { fetchJSON, loadMorph, stripAccents,
 import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
   slp1KeyVariants } from "./translit";
 import { featsEl, featTagEl, lemmaDualEl } from "./feats";
+import { compoundBlock } from "./compound";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -93,6 +94,9 @@ function parseCardEl(p: Parse): El {
   // inline DCS gloss when the shard ships one (MW section covers the rest)
   const g = (p as Parse & { g?: string }).g;
   if (g) card.appendChild(el("div", "gloss", g));
+  // samāsa member mini-rows when this analysis carries a chain
+  const comp = compoundBlock(p);
+  if (comp) card.appendChild(comp);
   return card;
 }
 

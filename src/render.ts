@@ -9,6 +9,7 @@ import { disp, registerUnitScripts, scriptPrefControls,
   scriptPrefs } from "./display";
 import { devToIast, iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
 import { featNodes, featsEl, lemmaDualEl } from "./feats";
+import { compoundBlock, firstCompound } from "./compound";
 import type { AnalyzeCandidate, AnalyzeResult } from "./parser-wasm";
 
 const glossShards = new Map<string, Record<string, Gloss> | null>();
@@ -332,6 +333,9 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
       `${order.length} analyses for ${word}; click to show all`);
     chip.addEventListener("click", () => toggleExpanded(word, ctx));
     col.appendChild(chip);
+    // samāsa members ride along on the collapsed card too
+    const comp = compoundFor(word, ctx);
+    if (comp) col.appendChild(comp);
     appendDeepEntry(col, word); // wasm flag only — no-op otherwise
     return;
   }
@@ -348,6 +352,8 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     candidateRow(parses[i], i, groups.get(stripAccents(parses[i].l))!, ctx)
       .forEach((node) => col.appendChild(node));
   }
+  const comp = compoundFor(word, ctx);
+  if (comp) col.appendChild(comp);
   appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 
@@ -402,6 +408,16 @@ function parseCard(p: Parse, ctx: RenderCtx, col: El): void {
  *  beneath). */
 function featsDual(feats: string): El {
   return featsEl(feats);
+}
+
+/** Compound-member mini-rows for this word: first ranked parse that carries
+ *  a member chain wins. Null when the word isn't a compound (or the shards
+ *  carry no chain for it). */
+function compoundFor(word: string, ctx: RenderCtx): El | null {
+  const parses = ctx.morph.get(stripAccents(word)) ?? [];
+  if (!parses.length) return null;
+  const order = rankParses(parses, ctx.lemmaFreq, ctx.genre);
+  return firstCompound(order.map((i) => parses[i]));
 }
 
 /** Inline DCS gloss of a parse shard entry, when it ships one. */
@@ -1307,6 +1323,10 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
       seenLemmas.add(stripAccents(parse.l));
     }
   }
+
+  // samāsa members: one mini-row per compound member (form, tags, MW gloss)
+  const comp = compoundFor(word, ctx);
+  if (comp) body.appendChild(comp);
 
   // full dictionary entries for each distinct lemma of this form
   const dictEntries: Gloss[] = [];

@@ -252,13 +252,28 @@ def parse_feats(field: str) -> dict:
 
 
 def conllu_analyses(path: str):
-    """Yield (form_keys, entry_dict) per real token line."""
+    """Yield (form_keys, entry_dict) per real token line.
+
+    Compound chains: a range row ("1-3\ttapaḥsvādhyāyanirataṃ") opens a
+    pending compound; the following numbered member rows carry each
+    member's own lemma/POS/feats (Case=Cpd on internal members). Once all
+    members arrived, the COMPOUND surface form yields an entry carrying
+    "m": [{d,l,p,f}, …] so the reader can annotate every member. Member
+    rows still yield their own standalone analyses exactly as before.
+    """
+    pending = None  # {"form": str, "left": int, "members": [dict]}
     for line in open(path, encoding="utf-8"):
         if line.startswith("#") or not line.strip():
             continue
         c = line.rstrip("\n").split("\t")
-        if len(c) < 6 or "-" in c[0] or "." in c[0]:
-            continue  # range row (sandhi pre-split) / empty-node row
+        if len(c) < 6 or "." in c[0]:
+            continue  # empty-node row
+        if "-" in c[0]:
+            lo, _, hi = c[0].partition("-")
+            if lo.isdigit() and hi.isdigit():
+                n = int(hi) - int(lo) + 1
+                pending = {"form": c[1], "left": n, "members": []}
+            continue  # range row itself carries no analysis
         form, lemma, upos, feats_f, misc = c[1], c[2], c[3], c[5], c[9] \
             if len(c) > 9 else ""
         if upos in ("PUNCT", "SYM"):
@@ -266,6 +281,41 @@ def conllu_analyses(path: str):
         feats = parse_feats(feats_f)
         pos = map_pos(upos, feats)
         f = map_feats(upos, feats)
+
+        # feed the pending compound chain (member IDs are consecutive from
+        # the range start; counting arrivals is enough — no ID bookkeeping)
+        if pending is not None and pending["left"] > 0:
+            pending["left"] -= 1
+            m = re.search(r"(?:^|\|)Unsandhied=([^|]*)", misc or "")
+            pending["members"].append({
+                "d": transliterate((m.group(1) if m else "") or form,
+                                   IAST, DEVA),
+                "l": transliterate(lemma, IAST, DEVA)
+                if lemma and lemma != "_" else "",
+                "p": pos,
+                "f": f,
+            })
+            if pending["left"] == 0 and pending["members"]:
+                keys = form_keys(pending["form"])
+                entry = None
+                if keys:
+                    last = pending["members"][-1]
+                    head_l = last["l"] or pending["members"][0]["l"]
+                    if head_l:
+                        entry = {
+                            # head lemma = final member's lemma (DCS heads
+                            # compounds on the last member), plus members
+                            "l": head_l,
+                            "p": last["p"],
+                            "f": last["f"],
+                            "m": pending["members"],
+                        }
+                pend = pending
+                pending = None
+                if entry is not None:
+                    yield keys, entry
+                del pend
+
         unsand = ""
         m = re.search(r"(?:^|\|)Unsandhied=([^|]*)", misc or "")
         if m:
@@ -297,6 +347,13 @@ def load_existing():
     return shards
 
 
+def _entry_tup(entry: dict) -> tuple:
+    """Dedup identity of one shard entry: lemma/POS/feats + member chain."""
+    m = entry.get("m")
+    msig = json.dumps(m, ensure_ascii=False, sort_keys=True) if m else ""
+    return (entry.get("l"), entry.get("p"), entry.get("f"), msig)
+
+
 def merge(shards):
     """Union DCS analyses into shards.
 
@@ -321,7 +378,7 @@ def merge(shards):
     for bucket in shards.values():
         for k, entries in bucket.items():
             for e in entries:
-                seen_pairs.add((k, e.get("l"), e.get("p"), e.get("f")))
+                seen_pairs.add((k,) + _entry_tup(e))
     n_new_keys = n_dup = n_tok = 0
     per_work = {}
     key_origin = {}
@@ -335,7 +392,7 @@ def merge(shards):
             st[0] += 1
             if entry is None:
                 continue
-            etup = (entry["l"], entry["p"], entry["f"])
+            etup = _entry_tup(entry)
             fresh = False
             for k in keys:
                 bucket = shards.setdefault(k[0], OrderedDict())
