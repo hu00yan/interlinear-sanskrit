@@ -1274,6 +1274,34 @@
      "translation": null
     }
    ]
+  },
+  {
+   "name": "Jayadeva",
+   "key": "jayadeva",
+   "works": [
+    {
+     "id": "gitagovinda",
+     "title": "Gītagovinda",
+     "titleZh": "牧童歌",
+     "urn": "urn:sanskrit:gitagovinda",
+     "license": "GRETIL CC BY-NC-SA 4.0 (text)",
+     "kind": "verse",
+     "files": [
+      "texts/kavya/gitagovinda.json"
+     ],
+     "unitCount": 264,
+     "edition": "GRETIL corpustei ed. (pausa text, 12 prabandhas, 264 numbered padas incl. refrain repeats)",
+     "translation": {
+      "translator": "Sir Edwin Arnold",
+      "year": 1875,
+      "license": "Public domain",
+      "files": [
+       "trans/gitagovinda.json"
+      ],
+      "alignment": "canto"
+     }
+    }
+   ]
   }
  ]
 }
