@@ -11,7 +11,7 @@
 // min 240px / max 50vw) and the width is remembered PER WORK. Inline zh
 // lines are suppressed while 侧栏 is active so the translation never
 // renders twice.
-import { hasTranslation, type CatalogWork, type Unit } from "./api";
+import { type CatalogWork, type Unit } from "./api";
 import { loadTranslationUnits } from "./translation";
 import { loadZhMap, translationZhOf } from "./zh-layer";
 
@@ -70,8 +70,6 @@ export function setupSidebar(
     tl?: { setSuppressed(b: boolean): void } | null;
   },
 ): SidebarHandle | null {
-  if (!hasTranslation(work)) return null; // nothing to put in a sidebar
-
   const enMeta = (work as {
     translation?: { files?: unknown };
   }).translation;
@@ -82,6 +80,7 @@ export function setupSidebar(
   const zhFiles = (zhMeta?.files as unknown[] | undefined)?.filter(
     (f): f is string => typeof f === "string",
   ) ?? [];
+  // zh-only works (Gaṇḍavyūha…) qualify too — English is not required
   if (!enFiles.length && !zhFiles.length) return null;
 
   let mode: ViewMode = storedMode(work.id) ?? defaultViewMode(work);
