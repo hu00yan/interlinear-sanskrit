@@ -204,6 +204,26 @@
       ],
       "alignment": "verse"
      }
+    },
+    {
+     "id": "maitri-upanishad",
+     "title": "Maitrī Upaniṣad",
+     "titleZh": "弥勒奥义书",
+     "urn": "urn:sanskrit:upanishad/maitri-upanishad",
+     "license": "Wikisource CC BY-SA 4.0 (text)",
+     "files": [
+      "texts/upanishads/maitri-upanishad.json"
+     ],
+     "unitCount": 105,
+     "translation": {
+      "translator": "Robert Ernest Hume",
+      "year": 1921,
+      "license": "Public domain (Hume 1921)",
+      "files": [
+       "trans/maitri-upanishad-hume.json"
+      ],
+      "alignment": "verse"
+     }
     }
    ]
   },
