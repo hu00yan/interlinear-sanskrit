@@ -1399,6 +1399,28 @@
       ],
       "alignment": "karika"
      }
+    },
+    {
+     "id": "yoga-sutra",
+     "title": "Yogasūtra",
+     "titleZh": "瑜伽经",
+     "urn": "urn:sanskrit:darshana/yoga-sutra",
+     "kind": "prose",
+     "license": "GRETIL CC BY-NC-SA 4.0 (text)",
+     "files": [
+      "texts/darshana/yoga-sutra.json"
+     ],
+     "unitCount": 195,
+     "edition": "GRETIL corpustei e-text",
+     "translation": {
+      "translator": "James Haughton Woods",
+      "year": 1914,
+      "license": "Public domain (Harvard Oriental Series 17, 1914)",
+      "files": [
+       "trans/yoga-sutra.json"
+      ],
+      "alignment": "sutra"
+     }
     }
    ]
   }
