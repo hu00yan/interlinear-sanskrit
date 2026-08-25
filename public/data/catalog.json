@@ -364,6 +364,27 @@
        "trans/pali-therigatha-sujato.json"
       ]
      }
+    },
+    {
+     "id": "pali-dn",
+     "title": "Dīgha Nikāya",
+     "titleZh": "长部经典",
+     "urn": "urn:pali:pali-dn",
+     "lang": "pi",
+     "kind": "prose",
+     "license": "CC0",
+     "files": [
+      "texts/pali/dn.json"
+     ],
+     "unitCount": 50,
+     "translation": {
+      "translator": "Bhikkhu Sujato",
+      "year": 2018,
+      "license": "CC0",
+      "files": [
+       "trans/pali-dn-sujato.json"
+      ]
+     }
     }
    ]
   },
