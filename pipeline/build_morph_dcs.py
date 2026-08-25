@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Extend public/data/morph shards with DCS v2 CoNLL-U analyses (11 works,
-~1.59M tokens, .cache-dcs/dcs-conllu/<Work>/*.conllu, GPL-style DCS data —
-build-time use). MERGES INTO the existing BhG-built shards
+"""Extend public/data/morph shards with DCS v2 CoNLL-U analyses.
+
+Round 1: 11 works, ~1.59M tokens, .cache-dcs/dcs-conllu/<Work>/*.conllu.
+Round 2 (this): +22 matched works (~1.9M more tokens) from a sibling cache
+.cache-dcs-ext/<Work>/*.conllu (outside the repo; .cache-dcs/ is read-only;
+location overridable via DCS_EXTRA_SRC env var — see NEW_WORKS below and
+qa-report/morph-dcs2.md for the match table + exclusions). GPL-style DCS
+data — build-time use. MERGES INTO the existing BhG-built shards
 (pipeline/build_morph.py output) without disturbing their entries: shared
 keys keep existing parses FIRST, deduped DCS parses appended; new keys are
 added wholesale. Idempotent: rerun against its own output is a no-op.
@@ -56,8 +61,36 @@ sys.path.insert(0, os.path.join(HERE, "pipeline"))
 from sanscript import slp1_key, transliterate, IAST, DEVA  # noqa: E402
 
 SRC_DIR = os.path.join(HERE, ".cache-dcs", "dcs-conllu")
+# Round-2 cache: sibling of the repo root (kept out of the repo tree because
+# .cache-dcs/ is read-only by convention). Override with DCS_EXTRA_SRC.
+EXTRA_SRC = os.environ.get(
+    "DCS_EXTRA_SRC",
+    os.path.join(os.path.dirname(HERE), ".cache-dcs-ext"))
 MORPH_DIR = os.path.join(HERE, "public", "data", "morph")
 CATALOG = os.path.join(HERE, "public", "data", "catalog.json")
+
+# Catalog<->DCS matches added in round 2 (values = DCS work dir names under
+# EXTRA_SRC). Every entry passed the validation gate: page-sample resolution
+# >=85% of site tokens resolving through the merged shards AND a material
+# resolution gain over round-1 spill-over (else recension mismatch ->
+# excluded; see qa-report/morph-dcs2.md for the excluded list + reasons).
+NEW_WORKS = [
+    # Upaniṣads
+    "Kaṭhopaniṣad", "Muṇḍakopaniṣad", "Aitareyopaniṣad",
+    "Taittirīyopaniṣad", "Bṛhadāraṇyakopaniṣad", "Chāndogyopaniṣad",
+    "Śvetāśvataropaniṣad", "Kauṣītakyupaniṣad",
+    # Kāvya / fable / stotra
+    "Ṛtusaṃhāra", "Kumārasaṃbhava", "Caurapañcaśikā", "Gītagovinda",
+    "Śatakatraya",
+    # Purāṇa
+    "Bhāgavatapurāṇa",
+    # Darśana
+    "Sāṃkhyakārikā", "Yogasūtra", "Nyāyasūtra",
+    # Buddhist sūtras
+    "Saddharmapuṇḍarīkasūtra", "Aṣṭasāhasrikā", "Laṅkāvatārasūtra",
+    # Veda
+    "Ṛgveda",
+]
 
 VALID_KEY = re.compile(r"[a-z~]+")
 PUNCT_RE = re.compile(r"^[\u0964\u09650-9.,;:!?\u201c\u201d'\"()\-\s]+$")
@@ -159,6 +192,35 @@ def map_feats(upos: str, feats: dict) -> str:
     return ";".join(tags + [e for e in extras if e])
 
 
+def _canonical_keys(text: str):
+    """All valid shard-key spellings for one surface form.
+
+    slp1_key() takes different normalization paths for Devanagari vs roman
+    input: Devanagari वै -> 've' (ai->E->e after casefold) but ASCII 'vai'
+    stays 'vai' (HK path leaves the digraph), likewise au->o vs 'au'. DCS
+    source forms are roman while most site display tokens are Devanagari,
+    so every ai/au word would otherwise split into two non-meeting key
+    flavors. Derive BOTH flavors (raw + via the other script) so shards
+    carry aliases and either lookup flavor resolves. Same-word aliases
+    only; no new collisions are introduced.
+    """
+    out = []
+
+    def add(k):
+        if k and VALID_KEY.fullmatch(k) and k not in out:
+            out.append(k)
+
+    add(slp1_key(text))
+    try:
+        if any("\u0900" <= c <= "\u097f" for c in text):
+            add(slp1_key(transliterate(text, DEVA, IAST)))
+        else:
+            add(slp1_key(transliterate(text, IAST, DEVA)))
+    except Exception:
+        pass
+    return out
+
+
 def form_keys(form: str):
     """slp1 shard keys for one surface-form field (sandhied + variants).
 
@@ -169,9 +231,9 @@ def form_keys(form: str):
         cand = cand.strip()
         if not cand:
             continue
-        k = slp1_key(cand)
-        if k and VALID_KEY.fullmatch(k) and k not in keys:
-            keys.append(k)
+        for k in _canonical_keys(cand):
+            if k not in keys:
+                keys.append(k)
     return keys
 
 
@@ -236,8 +298,24 @@ def load_existing():
 
 
 def merge(shards):
-    """Union DCS analyses into shards. Returns (new_keys, dup_entries)."""
-    files = sorted(glob.glob(os.path.join(SRC_DIR, "*", "*.conllu")))
+    """Union DCS analyses into shards.
+
+    Returns (n_new_keys, per_work_stats, key_origin) where per_work_stats
+    maps work-dir -> [tokens_seen, keys_added] and key_origin maps each
+    newly-created shard key -> the work dir that first contributed it
+    (used for per-work spot checks).
+    """
+    roots = [(SRC_DIR, "*")]
+    for w in NEW_WORKS:
+        if not os.path.isdir(os.path.join(EXTRA_SRC, w)):
+            raise SystemExit(
+                f"[dcs-morph] missing round-2 cache dir: "
+                f"{os.path.join(EXTRA_SRC, w)} (run the downloader; "
+                f"or set DCS_EXTRA_SRC)")
+        roots.append((EXTRA_SRC, w))
+    files = []
+    for root, pat in roots:
+        files += sorted(glob.glob(os.path.join(root, pat, "*.conllu")))
     assert len(files) > 2500, f"dcs-conllu missing? found {len(files)}"
     seen_pairs = set()  # (key, entry-tuple) already in shards OR added by us
     for bucket in shards.values():
@@ -245,9 +323,16 @@ def merge(shards):
             for e in entries:
                 seen_pairs.add((k, e.get("l"), e.get("p"), e.get("f")))
     n_new_keys = n_dup = n_tok = 0
+    per_work = {}
+    key_origin = {}
+    r1_dirs = {os.path.basename(d)
+               for d in glob.glob(os.path.join(SRC_DIR, "*"))}
     for fp in files:
+        work = os.path.basename(os.path.dirname(fp))
+        st = per_work.setdefault(work, [0, 0])
         for keys, entry in conllu_analyses(fp):
             n_tok += 1
+            st[0] += 1
             if entry is None:
                 continue
             etup = (entry["l"], entry["p"], entry["f"])
@@ -258,6 +343,8 @@ def merge(shards):
                 if slot is None:
                     bucket[k] = [entry]
                     n_new_keys += 1
+                    st[1] += 1
+                    key_origin.setdefault(k, work)
                     fresh = True
                 elif (k,) + etup not in seen_pairs:
                     slot.append(entry)
@@ -267,7 +354,11 @@ def merge(shards):
                 n_dup += 1
     print(f"[dcs-morph] tokens={n_tok} new_keys={n_new_keys} "
           f"dup_entries_skipped={n_dup}")
-    return n_new_keys
+    for work in sorted(per_work):
+        if work not in r1_dirs:
+            toks, added = per_work[work]
+            print(f"  [r2] {work}  tokens={toks} new_keys={added}")
+    return n_new_keys, per_work, key_origin
 
 
 def emit_shards(shards):
@@ -322,27 +413,33 @@ def emit_surface_index(shards):
     for tok in sorted(all_toks):
         if PUNCT_RE.match(tok):
             continue
-        k = slp1_key(tok)
-        if not k or not VALID_KEY.fullmatch(k):
-            # hyphenated display token: try members
-            if "-" in tok:
-                got = []
-                for mem in tok.split("-"):
-                    mk = slp1_key(mem.strip())
-                    if mk and VALID_KEY.fullmatch(mk) and mk in keys:
-                        got.append(mk)
-                if got:
-                    index[tok] = got[0]
-                    exact += 1
-            continue
-        if k in keys:
-            index[tok] = k
+        variants = _canonical_keys(tok)
+        members = None
+        hit_key = None
+        for k in variants:
+            if k in keys:
+                hit_key = k
+                break
+        if hit_key is None and "-" in tok:
+            # hyphenated display token: first member with a resolving key
+            got = []
+            for mem in tok.split("-"):
+                mk = _canonical_keys(mem.strip())
+                got.extend(k for k in mk if k in keys)
+            if got:
+                hit_key = got[0]
+        if hit_key is not None:
+            index[tok] = hit_key
             exact += 1
             continue
-        for cut in range(len(k) - 1, 3, -1):
-            if k[:cut] in keys:
-                index[tok] = k[:cut]
-                stems += 1
+        # stem fallback: longest resolving prefix >=4, primary flavor first
+        for k in variants:
+            for cut in range(len(k) - 1, 3, -1):
+                if k[:cut] in keys:
+                    index[tok] = k[:cut]
+                    stems += 1
+                    break
+            if tok in index:
                 break
     with open(os.path.join(MORPH_DIR, "_surface_index.json"), "w",
               encoding="utf-8") as fh:
@@ -471,6 +568,46 @@ WORK_OF_SITE_ID = {
     "arthasastra": "Artha\u015b\u0101stra", "manusmrti": "Manusm\u1e5bti",
     "kamasutra": "K\u0101mas\u016btra", "hitopadesa": "Hitopade\u015ba",
     "tantrakhyayika": "Tantr\u0101khy\u0101yik\u0101",
+    # round-2 matches
+    "katha-upanishad": "Ka\u1e6dhopani\u1e63ad",
+    "mundakopanishad": "Mu\u1e47\u1e0dakopani\u1e63ad",
+    "aitareya-upanishad": "Aitareyopani\u1e63ad",
+    "taittiriya-upanishad": "Taittir\u012byopani\u1e63ad",
+    "brihadaranyaka-upanishad": "B\u1e5bhad\u0101ra\u1e47yakopani\u1e63ad",
+    "chandogya-upanishad": "Ch\u0101ndogyopani\u1e63ad",
+    "svetasvatara-upanishad": "\u015avet\u0101\u015bvataropani\u1e63ad",
+    "kausitaki-upanishad": "Kau\u1e63\u012btakyupani\u1e63ad",
+    "rtusamhara": "\u1e5atusa\u1e43h\u0101ra",
+    "kumarasambhava": "Kum\u0101rasa\u1e43bhava",
+    "caurapancasika": "Caurapa\u00f1ca\u015bik\u0101",
+    "gitagovinda": "G\u012btagovinda", "satakatraya": "\u015aatakatraya",
+    "bhagavata-01": "Bh\u0101gavatapur\u0101\u1e47a",
+    "sankhya-karika": "S\u0101\u1e43khyak\u0101rik\u0101",
+    "yoga-sutra": "Yogas\u016btra", "nyaya-sutra": "Ny\u0101yas\u016btra",
+    "saddharmapundarika": "Saddharmapu\u1e47\u1e0dar\u012bkas\u016btra",
+    "astasahasrika": "A\u1e63\u1e6das\u0101hasrik\u0101",
+    "lankavatara": "La\u1e45k\u0101vat\u0101ras\u016btra",
+    "rigveda-mandala01": "\u1e5agveda",
+}
+
+# Round-1 (pre-round-2) occurrence-weighted resolution % — spill-over only.
+# validate() prints the delta so the report can show per-work gain.
+ROUND1_PCT = {
+    "bhagavadgita": 95.8, "katha-upanishad": 91.1,
+    "prasna-upanishad": 91.2, "mundaka-upanishad": 83.6,
+    "aitareya-upanishad": 88.7, "taittiriya-upanishad": 86.4,
+    "brihadaranyaka-upanishad": 87.8, "chandogya-upanishad": 87.6,
+    "kenopanishad": 82.1, "svetasvatara-upanishad": 58.6,
+    "kausitaki-upanishad": 50.0, "maitri-upanishad": 39.2,
+    "rigveda-mandala01": 85.4, "raghuvamsa": 88.8,
+    "abhijnanasakuntala": 91.9, "rtusamhara": 93.4,
+    "kumarasambhava": 62.4, "sisupalavadha": 87.3,
+    "caurapancasika": 91.5, "pancatantra": 93.6,
+    "saddharmapundarika": 87.8, "astasahasrika": 66.9,
+    "lankavatara": 58.1, "bhagavata-01": 61.4, "bhagavata-05": 68.3,
+    "bhagavata-10": 73.9, "gitagovinda": 59.5, "satakatraya": 66.3,
+    "vetalapancavimsati": 73.1, "sankhya-karika": 32.4,
+    "yoga-sutra": 24.5, "nyaya-sutra": 23.1, "brahma-sutra": 40.2,
 }
 
 
@@ -491,11 +628,42 @@ def validate(toks_by_work, index, shards):
                   if not PUNCT_RE.match(t) and t in index)
         pct = 100 * hit / word_occ if word_occ else 0.0
         dcs = WORK_OF_SITE_ID.get(wid, "-")
-        lines.append(f"{wid}|{pct:.1f}%|{hit}/{word_occ}")
-        flag = "" if pct >= 90 else "  <-- BELOW 90%"
-        print(f"  {wid:16s} (DCS: {dcs:14s}) {pct:6.2f}%  "
+        base = ROUND1_PCT.get(wid)
+        delta = f" (+{pct - base:.1f})" if base is not None and pct >= base \
+            else (f" ({pct - base:+.1f})" if base is not None else "")
+        lines.append(f"{wid}|{dcs}|{pct:.1f}%|{hit}/{word_occ}")
+        flag = "" if pct >= 90 or base is None else "  <-- round-2 match"
+        print(f"  {wid:26s} (DCS: {dcs:24s}) {pct:6.2f}%{delta:8s} "
               f"({hit}/{word_occ} word occurrences){flag}")
     return lines
+
+
+def spot_check_new(index, key_origin, toks_by_work, shards, per_work=3):
+    """Eye-check sample: most frequent site tokens resolving ONLY because a
+    given round-2 work contributed their shard key."""
+    print("\n[spot-check r2] per-new-work samples (token -> key -> entries):")
+    for work in NEW_WORKS:
+        keys_w = {k for k, w in key_origin.items() if w == work}
+        if not keys_w:
+            print(f"  {work}: no new-key hits on site tokens")
+            continue
+        shown = 0
+        best = []
+        for wid, toks in toks_by_work.items():
+            for t in toks:
+                k = index.get(t)
+                if k in keys_w:
+                    best.append(t)
+        shown = 0
+        for tok in sorted(set(best)):
+            k = index[tok]
+            entries = shards.get(k[0], {}).get(k)
+            if not entries:
+                continue
+            print(f"  [{work}] {tok} -> {k} -> {entries[:1]}")
+            shown += 1
+            if shown >= per_work:
+                break
 
 
 def spot_check(index, shards, n=15):
@@ -516,12 +684,17 @@ def spot_check(index, shards, n=15):
 def main() -> None:
     shards = load_existing()
     before = {l: set(b) for l, b in shards.items()}
-    merge(shards)
+    n_new, per_work, key_origin = merge(shards)
     emit_shards(shards)
     toks_by_work, index = emit_surface_index(shards)
     emit_surface_slices(index, toks_by_work)
-    validate(toks_by_work, index, shards)
+    lines = validate(toks_by_work, index, shards)
+    with open(os.path.join(HERE, "qa-report", "morph-dcs2-resolution.csv"),
+              "w", encoding="utf-8") as fh:
+        fh.write("work|dcs_dir|pct|hits\n")
+        fh.write("\n".join(lines) + "\n")
     spot_check(index, shards)
+    spot_check_new(index, key_origin, toks_by_work, shards)
 
     # idempotence probe: rerunning merge must add nothing
     probe = {l: dict(b) for l, b in shards.items()}
