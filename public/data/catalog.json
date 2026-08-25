@@ -1435,6 +1435,20 @@
      "unitCount": 533,
      "edition": "GRETIL corpustei e-text",
      "translation": null
+    },
+    {
+     "id": "brahma-sutra",
+     "title": "Brahmasūtra",
+     "titleZh": "梵经",
+     "urn": "urn:sanskrit:darshana/brahma-sutra",
+     "kind": "prose",
+     "license": "GRETIL CC BY-NC-SA 4.0 (text)",
+     "files": [
+      "texts/darshana/brahma-sutra.json"
+     ],
+     "unitCount": 545,
+     "edition": "GRETIL corpustei e-text",
+     "translation": null
     }
    ]
   }
