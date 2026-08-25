@@ -259,6 +259,27 @@
        "trans-zh/pali-dhammapada.json"
       ]
      }
+    },
+    {
+     "id": "pali-udana",
+     "title": "Udāna",
+     "titleZh": "优陀那",
+     "urn": "urn:pali:pali-udana",
+     "lang": "pi",
+     "kind": "prose",
+     "license": "CC0",
+     "files": [
+      "texts/pali/udana.json"
+     ],
+     "unitCount": 80,
+     "translation": {
+      "translator": "Bhikkhu Sujato",
+      "year": 2018,
+      "license": "CC0",
+      "files": [
+       "trans/pali-udana-sujato.json"
+      ]
+     }
     }
    ]
   },
