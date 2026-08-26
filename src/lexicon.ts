@@ -10,7 +10,9 @@
 import { fetchJSON, loadMorph, stripAccents, type Parse } from "./api";
 import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
   slp1KeyVariants } from "./translit";
-import { featsEl, featTagEl, lemmaDualEl } from "./feats";
+import { compactFeatsEl, featTagEl, lemmaDualEl,
+  parseDcsFeats } from "./feats";
+import { attachMwGloss } from "./compound";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -166,10 +168,14 @@ function parseCard(p: Parse): El {
   const head = el("div", "cand-head");
   head.appendChild(lemmaDualEl(p.l || "?"));
   card.appendChild(head);
-  const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
-  if (feats) card.appendChild(featsEl(feats));
-  const g = typeof p.g === "string" ? p.g : "";
-  if (g) card.appendChild(el("div", "gloss", g));
+  // compact abbr inflection (R2); x-extras muted beneath
+  card.appendChild(compactFeatsEl(p.p, p.f));
+  const extras = parseDcsFeats(p.f ?? "").extras
+    .concat((p.x ?? "").split(/[|\s]+/).filter(Boolean));
+  if (extras.length) {
+    card.appendChild(el("div", "feats feat-extras", extras.join(" · ")));
+  }
+  attachMwGloss(card, p.l ?? "");
   return card;
 }
 

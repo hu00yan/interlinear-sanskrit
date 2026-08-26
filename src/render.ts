@@ -8,8 +8,10 @@ import { themeControl } from "./theme";
 import { disp, registerUnitScripts, scriptPrefControls,
   scriptPrefs } from "./display";
 import { devToIast, iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
-import { featNodes, featsEl, lemmaDualEl } from "./feats";
-import { compoundBlock, firstCompound } from "./compound";
+import { compactFeatsEl, compactTagNode, lemmaDualEl,
+  parseDcsFeats } from "./feats";
+import { attachMwGloss, compoundBlock, firstCompound, membersOf,
+  mwGlossFor } from "./compound";
 import type { AnalyzeCandidate, AnalyzeResult } from "./parser-wasm";
 
 const glossShards = new Map<string, Record<string, Gloss> | null>();
@@ -306,68 +308,37 @@ function parseCards(word: string, ctx: RenderCtx): El {
   return col;
 }
 
-/** (Re)render one word's parse column per current expansion state. */
-function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
-  col.replaceChildren();
-  const key = stripAccents(word);
-  const parses = ctx.morph.get(key);
-  if (!parses || parses.length === 0) {
-    if (ctx.unknown?.has(key)) {
-      // confirmed unknown after both index and live lookup
-      col.appendChild(el("div", "pcard pcard-unknown", "—"));
-    } else {
-      col.appendChild(el("span", "noparse", "—"));
-    }
-    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
-    return;
-  }
-
-  const order = rankParses(parses, ctx.lemmaFreq, ctx.genre);
-  if (order.length > 1 && !expandedForms.has(key)) {
-    // collapsed: best-ranked card + muted "+N" chip
-    parseCard(parses[order[0]], ctx, col);
-    const chip = el("button", "more-chip", `+${order.length - 1}`) as HTMLButtonElement;
-    chip.type = "button";
-    chip.title = `${order.length} analyses — click to compare`;
-    chip.setAttribute("aria-label",
-      `${order.length} analyses for ${word}; click to show all`);
-    chip.addEventListener("click", () => toggleExpanded(word, ctx));
-    col.appendChild(chip);
-    // samāsa members ride along on the collapsed card too
-    const comp = compoundFor(word, ctx);
-    if (comp) col.appendChild(comp);
-    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
-    return;
-  }
-
-  // expanded (or unambiguous): every candidate, clearly separated
-  const groups = new Map<string, Parse[]>();
-  for (const i of order) {
-    const k = stripAccents(parses[i].l);
-    let arr = groups.get(k);
-    if (!arr) groups.set(k, (arr = []));
-    arr.push(parses[i]);
-  }
-  for (const i of order) {
-    candidateRow(parses[i], i, groups.get(stripAccents(parses[i].l))!, ctx)
-      .forEach((node) => col.appendChild(node));
-  }
-  const comp = compoundFor(word, ctx);
-  if (comp) col.appendChild(comp);
-  appendDeepEntry(col, word); // wasm flag only — no-op otherwise
+/** Compact analysis card: [lemma | abbr inflection] + MW gloss line. */
+function compactCard(p: Parse, _ctx: RenderCtx): El {
+  const card = el("div", "pcard pcard-compact");
+  const head = el("div", "cand-head");
+  head.appendChild(lemmaDualEl(dispLemma(p.l)));
+  head.appendChild(compactFeatsEl(p.p, p.f));
+  card.appendChild(head);
+  attachMwGloss(card, p.l ?? "");
+  return card;
 }
 
-/** Dual-script grammar-tag badge (IAST primary + Devanagari beneath;
- *  already-Latin tokens stay plain). */
-function featBadge(tok: string): El {
-  const b = el("span", "diff-badge");
-  for (const n of featNodes(tok)) b.appendChild(n);
-  return b;
+/** Card-display lemma: DCS homonym digits ("दृश्1" -> "दृश्") are
+ *  disambiguation noise for readers; the raw lemma still feeds gloss
+ *  lookups and the word panel. */
+function dispLemma(lemma: string): string {
+  return (lemma || "").replace(/^(.*\D)\d+$/, "$1");
+}
+
+/** Expanded-detail extras of one analysis: unmapped f-extras + x field
+ *  (dialects / stem types / compound TYPE) — muted, detail only (R2/R5). */
+function extrasLine(p: Parse): El | null {
+  const { extras } = parseDcsFeats(p.f ?? "");
+  const xToks = (p.x ?? "").split(/[|\s]+/).filter(Boolean);
+  const all = [...extras, ...xToks];
+  if (!all.length) return null;
+  return el("div", "feats feat-extras", all.join(" · "));
 }
 
 /**
- * One expanded candidate: compact summary row — lemma, features,
- * diff badges against same-lemma siblings, gloss.
+ * One expanded candidate: compact summary row — lemma, abbreviated
+ * features, diff badges against same-lemma siblings, extras detail, gloss.
  */
 function candidateRow(
   p: Parse,
@@ -377,37 +348,91 @@ function candidateRow(
 ): El[] {
   const row = el("div", "pcard cand-row");
   const head = el("div", "cand-head");
-  head.appendChild(lemmaDualEl(p.l || "?"));
+  head.appendChild(lemmaDualEl(dispLemma(p.l) || "?"));
   for (const tok of diffTokens(group.map((g) => g.f),
     group.indexOf(p))) {
     head.appendChild(featBadge(tok));
   }
   row.appendChild(head);
-  const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
-  if (feats) row.appendChild(featsDual(feats));
-  const gl = ctx.gloss.get(stripAccents(p.l));
-  const g = gl ? gl.g : inlineGloss(p);
-  if (g) row.appendChild(el("div", "gloss", g));
+  row.appendChild(compactFeatsEl(p.p, p.f));
+  const ex = extrasLine(p);
+  if (ex) row.appendChild(ex);
+  attachMwGloss(row, p.l ?? "");
   return [row];
 }
 
-function parseCard(p: Parse, ctx: RenderCtx, col: El): void {
-  const card = el("div", "pcard");
-  const head = el("div", "cand-head");
-  head.appendChild(lemmaDualEl(p.l || "?"));
-  card.appendChild(head);
-  const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
-  card.appendChild(featsDual(feats));
-  const gl = ctx.gloss.get(stripAccents(p.l));
-  const g = gl ? gl.g : inlineGloss(p);
-  card.appendChild(el("div", "gloss", g ? g : ""));
-  col.appendChild(card);
+/** (Re)render one word's parse column per current expansion state. */
+function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
+  col.replaceChildren();
+  const key = stripAccents(word);
+  const parses = ctx.morph.get(key);
+  if (!parses || parses.length === 0) {
+    // R4 honesty gate: NO parse card of any kind — the column stays empty
+    // (it must still occupy its slot so cards align under their words);
+    // the word remains clickable → dictionary panel.
+    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
+    return;
+  }
+
+  const order = rankParses(parses, ctx.lemmaFreq, ctx.genre);
+  if (order.length > 1 && !expandedForms.has(key)) {
+    // COLLAPSED (R1): top-2 analyses compactly + 「另有 N 种可能」 chip.
+    // Default state — never enumerate more until asked.
+    col.appendChild(compactCard(parses[order[0]], ctx));
+    col.appendChild(compactCard(parses[order[1]], ctx));
+    const nMore = order.length - 2;
+    if (nMore > 0) {
+      const chip = el("button", "more-chip",
+        `另有 ${nMore} 种可能`) as HTMLButtonElement;
+      chip.lang = "zh";
+      chip.type = "button";
+      chip.title = `${order.length} analyses — click to compare`;
+      chip.setAttribute("aria-label",
+        `${order.length} analyses for ${word}; ${nMore} more — click to show all`);
+      chip.addEventListener("click", () => toggleExpanded(word, ctx));
+      col.appendChild(chip);
+    }
+    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
+    return;
+  }
+
+  if (order.length > 1 && expandedForms.has(key)) {
+    // EXPANDED: every candidate, clearly separated
+    const groups = new Map<string, Parse[]>();
+    for (const i of order) {
+      const k = stripAccents(parses[i].l);
+      let arr = groups.get(k);
+      if (!arr) groups.set(k, (arr = []));
+      arr.push(parses[i]);
+    }
+    for (const i of order) {
+      candidateRow(parses[i], i, groups.get(stripAccents(parses[i].l))!, ctx)
+        .forEach((node) => col.appendChild(node));
+    }
+    const comp = compoundFor(word, ctx);
+    if (comp) col.appendChild(comp);
+    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
+    return;
+  }
+
+  // unambiguous single analysis: one compact card + samāsa members (R5)
+  col.appendChild(compactCard(parses[order[0]], ctx));
+  const comp = compoundFor(word, ctx);
+  if (comp) col.appendChild(comp);
+  appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 
-/** .feats div with dual-script tag nodes (IAST primary + Devanagari
- *  beneath). */
-function featsDual(feats: string): El {
-  return featsEl(feats);
+/** Dual-script grammar-tag badge with COMPACT abbreviation, e.g. [gen.]
+ *  vs [dat.] — the disagreement made scannable without raw tag dumps. */
+function featBadge(tok: string): El {
+  const b = el("span", "diff-badge");
+  const { main } = parseDcsFeats(tok);
+  if (main.length) {
+    b.appendChild(compactTagNode(main[0]));
+    return b;
+  }
+  b.textContent = tok; // unmapped verbatim token
+  return b;
 }
 
 /** Compound-member mini-rows for this word: first ranked parse that carries
@@ -418,11 +443,6 @@ function compoundFor(word: string, ctx: RenderCtx): El | null {
   if (!parses.length) return null;
   const order = rankParses(parses, ctx.lemmaFreq, ctx.genre);
   return firstCompound(order.map((i) => parses[i]));
-}
-
-/** Inline DCS gloss of a parse shard entry, when it ships one. */
-function inlineGloss(p: Parse): string {
-  return typeof p.g === "string" ? p.g : "";
 }
 
 /* ---------------- wasm deep parse (opt-in enhancement) ----------------
@@ -1310,18 +1330,14 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     body.appendChild(
       el("p", "word-form", `${parses.length} analysis${parses.length > 1 ? "es" : ""}`),
     );
-    const seenLemmas = new Set<string>();
     for (const parse of parses) {
       const entry = el("div", "entry");
       entry.appendChild(lemmaDualEl(parse.l || "?"));
-      const feats = [parse.p, parse.f, parse.x].filter(Boolean).join(" · ");
-      if (feats) entry.appendChild(featsDual(feats));
-      const gl = ctx.gloss.get(stripAccents(parse.l));
-      if (gl) {
-        entry.appendChild(elDisp("div", "dict-gloss", `${gl.u}: ${gl.g}`));
-      }
+      entry.appendChild(compactFeatsEl(parse.p, parse.f));
+      const ex = extrasLine(parse);
+      if (ex) entry.appendChild(ex);
+      attachMwGloss(entry, parse.l ?? "");
       body.appendChild(entry);
-      seenLemmas.add(stripAccents(parse.l));
     }
   }
 

@@ -8,6 +8,7 @@
 //   data/texts/<tlg>/<work>-partNN.json   {"id","author","title","kind",
 //                                          "units":[{"ref","words"}]}
 import { fromBeta, toBeta } from "./betacode";
+import { surfaceKeyTrusted } from "./translit";
 
 export interface CatalogWork {
   id: string;
@@ -314,7 +315,13 @@ async function loadShardMap<K, V>(
  * `scope` = catalog work id: resolves against that work's small per-work
  * slice (`_surface/by-work/<id>.json`) instead of the corpus-wide letter
  * slices. Absent/failed slice files degrade to letter slices (scope-less
- * callers, e.g. the lexicon box) and a miss is just "no parse". */
+ * callers, e.g. the lexicon box) and a miss is just "no parse".
+ *
+ * HONESTY GATE (R4): a resolved key counts ONLY when it is one of the
+ * form's own canonical spellings (surfaceKeyTrusted). The build's surface
+ * index also stores longest-resolving-PREFIX stem fallbacks; those keys
+ * carry analyses of a DIFFERENT (shorter) word and are dropped here, so
+ * tokens without exact shard coverage render no parse card at all. */
 export async function loadMorph(
   forms: string[],
   scope?: string,
@@ -334,7 +341,7 @@ export async function loadMorph(
   const out = new Map<string, Parse[]>();
   for (const form of uniq) {
     const key = await surfaceKey(form, scope);
-    if (!key) continue;
+    if (!key || !surfaceKeyTrusted(form, key)) continue;
     const l = key[0];
     if (!l) continue;
     const shard = await fetchJSON<Record<string, Parse[]> | null>(

@@ -7,7 +7,8 @@
 // Shared by the reader parse cards + side panel, and the lookup surfaces.
 import { fetchJSON, stripAccents, type Parse } from "./api";
 import { slp1KeyFor, slp1KeyVariants } from "./translit";
-import { featsEl, isDevaStr, lemmaDualEl } from "./feats";
+import { compactTagNode, isDevaStr, lemmaDualEl,
+  parseDcsFeats } from "./feats";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -79,26 +80,34 @@ export function mwGlossFor(lemma: string): Promise<string | null> {
   return p;
 }
 
-/** One member mini-row: dual-script form + tags + async MW gloss cell. */
+/** One member mini-row: dual-script form + COMPACT abbr tags + async MW
+ *  gloss cell (silent when the shards have no entry — R3/R5). */
 function memberRow(m: CompoundMember, idx: number, total: number): El {
   const row = el("div", "comp-member");
   // joiner glyph between members (samāsa reading order top→bottom)
   const form = el("span", "comp-form");
   form.appendChild(lemmaDualEl(isDevaStr(m.d) ? m.d : m.l || m.d));
   row.appendChild(form);
-  const feats = [m.p, m.f].filter(Boolean).join(" · ");
-  if (feats) row.appendChild(featsEl(feats, "feats comp-feats"));
+  // compact inflection: mapped tags only; Cpd/unmapped extras suppressed
+  const { main } = parseDcsFeats(m.f ?? "");
+  if (main.length) {
+    const fl = el("span", "feats comp-feats");
+    main.forEach((t, i) => {
+      if (i) fl.appendChild(document.createTextNode(" "));
+      fl.appendChild(compactTagNode(t));
+    });
+    row.appendChild(fl);
+  }
   const gl = el("div", "gloss comp-gloss");
-  gl.textContent = "…";
   row.appendChild(gl);
   const lemmaKey = stripAccents(m.l || m.d);
   void mwGlossFor(lemmaKey).then((g) => {
     if (!gl.isConnected) return;
-    if (g) gl.textContent = g.length > 160 ? `${g.slice(0, 157)}…` : g;
-    else {
-      gl.textContent = "无词条";
-      gl.classList.add("comp-nogloss");
+    if (!g) {
+      gl.remove(); // 无词条 → omit silently, never a loud placeholder
+      return;
     }
+    gl.textContent = g.length > 160 ? `${g.slice(0, 157)}…` : g;
   });
   if (idx < total - 1) row.appendChild(el("span", "comp-plus", "+"));
   return row;
@@ -127,4 +136,29 @@ export function firstCompound(parses: Parse[]): El | null {
     if (b) return b;
   }
   return null;
+}
+
+/**
+ * R3: every rendered analysis line ends with its English MW gloss, keyed
+ * by the analysis LEMMA (slp1-keyed exact shard hit). The cell is appended
+ * empty and filled async; when the shards have no entry the cell removes
+ * itself — no loud placeholder, ever.
+ * Shared by reader cards (render.ts), word-lookup (lookup.ts), lexicon.
+ */
+export function attachMwGloss(
+  parent: HTMLElement,
+  lemma: string,
+  maxChars = 180,
+): void {
+  const g = document.createElement("div");
+  g.className = "gloss mw-gloss";
+  parent.appendChild(g);
+  void mwGlossFor(lemma || "").then((txt) => {
+    if (!g.isConnected) return;
+    if (!txt) {
+      g.remove();
+      return;
+    }
+    g.textContent = txt.length > maxChars ? `${txt.slice(0, maxChars - 3)}…` : txt;
+  });
 }

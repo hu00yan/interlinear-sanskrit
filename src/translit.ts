@@ -260,12 +260,13 @@ export function iastToDev(input: string): string {
 }
 
 /* ---------------- SLP1 (dictionary shard keys) ----------------
- * Cologne-style SLP1 as used by the Monier-Williams gloss shards:
- *   long vowels capitalized (A I U f? no: vocalic r = f, rr = F),
- *   aspirates single capitals (kh=K gh=G ch=C jh=J Th=W? — see table),
- *   retroflex s = z, palatal s = S per THIS dataset's convention
- *   (verified empirically against public/data/gloss shards:
- *      karma ✓ yoga ✓ mokza ✓ zakara ✓).
+ * Cologne-style SLP1 as used by the Monier-Williams gloss shards AND the
+ * DCS morph shards (verified against both: sabanga/sangat -> ṅ=N,
+ * kftayjalir -> ñ=Y, mokza/zakara sibilants as tabled):
+ *   long vowels capitalized (A I U f F x X), aspirates single capitals
+ *   (kh=K gh=G ch=C jh=J Th=W Dh=Q th=T dh=D ph=P bh=B),
+ *   retroflex t/d/n = w q R, retroflex s = z, palatal s = S,
+ *   anusvaara = M, visarga = H, candrabindu = ~.
  * iastToSlp1 maps standard IAST to that key space; devToSlp1 composes via
  * devToIast. lookupVariants() yields alternate keys for snapshots that use
  * the mirrored sibilant convention. */
@@ -275,9 +276,11 @@ const IA_TO_SLP: Array<[string, string]> = [
   ["ai", "E"], ["au", "O"],
   ["kh", "K"], ["gh", "G"], ["ch", "C"], ["jh", "J"],
   ["\u1e6dh", "W"], ["\u1e0dh", "Q"], ["th", "T"], ["dh", "D"], ["ph", "P"], ["bh", "B"],
+  // candrabindu before plain m (devToIast emits m\u0310; SLP1 yogavaaha ~)
+  ["m\u0310", "~"],
   ["\u1e63", "z"],                 // sa -> z        (retroflex)
   ["\u015b", "S"],                 // za -> S        (palatal)
-  ["\u1e45", "G"], ["\u00f1", "J"],
+  ["\u1e45", "N"], ["\u00f1", "Y"],
   ["\u1e6d", "w"], ["\u1e0d", "q"], ["\u1e47", "R"],
   ["\u0101", "A"], ["\u012b", "I"], ["\u016b", "U"],
   ["\u1e5b", "f"], ["\u1e5d", "F"], ["\u1e37", "x"], ["\u1e39", "X"],
@@ -328,6 +331,50 @@ export function slp1KeyVariants(key: string): string[] {
     if (key.includes(a)) variants.add(key.split(a).join(b));
   }
   return [...variants];
+}
+
+/**
+ * ALL valid shard-key spellings of one surface form — client mirror of
+ * pipeline/build_morph_dcs.py _canonical_keys(). Devanagari and roman
+ * input normalize ai/au differently (वै -> "ve" via SLP1 E/O folding vs
+ * ascii "vai" keeping the digraph), so BOTH flavors are derived; a shard
+ * key is an EXACT surface hit only when it is one of these. Anything else
+ * resolved from the surface index (its stem-prefix fallback) is a fuzzy
+ * match and must not feed parse cards.
+ */
+export function canonicalKeysFor(form: string): Set<string> {
+  const out = new Set<string>();
+  const add = (k: string | undefined): void => {
+    if (k && /^[a-z~]+$/.test(k)) out.add(k);
+  };
+  if (isDevanagari(form)) {
+    add(slp1KeyFor(form)); // deva -> IAST -> SLP1 flavor
+    const rom = devToIast(form).toLowerCase();
+    if (/^[a-z]+$/.test(rom)) add(rom); // pure-ascii romanization: HK flavor
+  } else {
+    add(slp1KeyFor(form));
+  }
+  return out;
+}
+
+/**
+ * Trust gate for shard keys resolved through the surface slices
+ * (qa "morph-parse discipline" R4): TRUE only when `key` is one of the
+ * form's own canonical spellings — i.e. the shards carry analyses for this
+ * EXACT surface shape. Keys produced by the build's longest-resolving-
+ * prefix stem fallback fail the membership test here, so their (possibly
+ * unrelated) analyses are never rendered. Hyphenated display tokens also
+ * accept their members' keys, mirroring emit_surface_index.
+ */
+export function surfaceKeyTrusted(form: string, key: string): boolean {
+  if (!form || !key) return false;
+  if (canonicalKeysFor(form).has(key)) return true;
+  if (form.includes("-")) {
+    return form
+      .split("-")
+      .some((mem) => mem && canonicalKeysFor(mem).has(key));
+  }
+  return false;
 }
 
 // Test/dev hook: lets Playwright resolve shard keys without importing TS.

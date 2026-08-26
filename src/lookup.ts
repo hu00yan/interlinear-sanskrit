@@ -12,8 +12,9 @@ import { fetchJSON, loadMorph, stripAccents,
   type Parse } from "./api";
 import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
   slp1KeyVariants } from "./translit";
-import { featsEl, featTagEl, lemmaDualEl } from "./feats";
-import { compoundBlock } from "./compound";
+import { compactFeatsEl, featTagEl, lemmaDualEl,
+  parseDcsFeats } from "./feats";
+import { attachMwGloss, compoundBlock } from "./compound";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -89,11 +90,15 @@ function parseCardEl(p: Parse): El {
   const head = el("div", "cand-head");
   head.appendChild(lemmaEl(p.l || "?"));
   card.appendChild(head);
-  const feats = [p.p, p.f, p.x].filter(Boolean).join(" · ");
-  if (feats) card.appendChild(featsEl(feats));
-  // inline DCS gloss when the shard ships one (MW section covers the rest)
-  const g = (p as Parse & { g?: string }).g;
-  if (g) card.appendChild(el("div", "gloss", g));
+  // compact abbr inflection (R2); x-extras muted beneath
+  card.appendChild(compactFeatsEl(p.p, p.f));
+  const extras = parseDcsFeats(p.f ?? "").extras
+    .concat((p.x ?? "").split(/[|\s]+/).filter(Boolean));
+  if (extras.length) {
+    card.appendChild(el("div", "feats feat-extras", extras.join(" · ")));
+  }
+  // MW gloss keyed by the lemma; silent when absent (R3)
+  attachMwGloss(card, p.l ?? "");
   // samāsa member mini-rows when this analysis carries a chain
   const comp = compoundBlock(p);
   if (comp) card.appendChild(comp);
