@@ -767,6 +767,26 @@ export function setProsodyWorkId(id: string | null): void {
   currentProsodyWorkId = id;
 }
 
+/** Shipped data refs repeat when an edition chunks one verse into several
+ *  units. DOM refs must be unique for deep links / resume tracking, so the
+ *  first occurrence keeps the verbatim ref and repeats get letter suffixes:
+ *  1.2a, 1.2b, … Counts are keyed per container (one reader view = one
+ *  work), so pagination continues the sequence and route changes reset it.
+ *  unit.ref itself is NEVER mutated — translation alignment matches on it. */
+const refCountsByRoot = new WeakMap<El, Map<string, number>>();
+
+export function uniqueDomRef(container: El, ref: string): string {
+  let counts = refCountsByRoot.get(container);
+  if (!counts) {
+    counts = new Map();
+    refCountsByRoot.set(container, counts);
+  }
+  const n = counts.get(ref) ?? 0;
+  counts.set(ref, n + 1);
+  if (n === 0) return ref;
+  return n <= 26 ? `${ref}${String.fromCharCode(96 + n)}` : `${ref}${n}`;
+}
+
 export function renderUnits(
   container: El,
   units: Unit[],
@@ -779,20 +799,23 @@ export function renderUnits(
   viewLang = ctx.lang ?? null;
   units.forEach((unit, uIdx) => {
     const row = el("div", kind === "prose" ? "unit prose-unit" : "line");
-    if (unit.ref) row.dataset.ref = unit.ref; // deep-link / resume target    // Deterministic header: ref + right-aligned grouped actions (TTS + AI)
+    // unique per-work DOM ref (repeated verse chunks get letter suffixes);
+    // unit.ref stays verbatim for translation alignment
+    const domRef = unit.ref ? uniqueDomRef(container, unit.ref) : null;
+    if (domRef) row.dataset.ref = domRef; // deep-link / resume target    // Deterministic header: ref + right-aligned grouped actions (TTS + AI)
     const head = el("div", "unit-head");
     // prose-head alias for backward compat + styling
     if (kind === "prose") head.classList.add("prose-head");
     const showRef = kind === "verse" ? !!unit.ref : !!(unit.ref && (baseIndex + uIdx) % 5 === 0);
-    if (showRef && unit.ref) {
-      const refEl = el("span", kind === "verse" ? "ref-label" : "ref-badge", unit.ref);
-      if (kind === "verse") refEl.title = `ref ${unit.ref}`;
+    if (showRef && domRef) {
+      const refEl = el("span", kind === "verse" ? "ref-label" : "ref-badge", domRef);
+      if (kind === "verse") refEl.title = `ref ${domRef}`;
       head.appendChild(refEl);
     }
     const actions = el("div", "unit-actions");
-    const star = starButtonFor(unit.ref);
+    const star = starButtonFor(domRef ?? unit.ref);
     if (star) actions.appendChild(star);
-    const copy = copyLinkButtonFor(unit.ref);
+    const copy = copyLinkButtonFor(domRef ?? unit.ref);
     if (copy) actions.appendChild(copy);
     head.appendChild(actions);
     row.appendChild(head);
@@ -1476,7 +1499,6 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     })();
   }
 
-  p.classList.remove("hidden");
   p.classList.remove("hidden");
   document.body.classList.add("panel-open"); // squeeze #app so controls stay clickable
 }

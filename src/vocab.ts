@@ -167,6 +167,8 @@ export function refreshChip(): void {
  *  Spans carry data-stripped (set at render time). */
 export function applyClasses(): void {
   const mode = getMode();
+  // body-level state so CSS can gate dimming globally
+  document.body.classList.toggle("vocab-highlight", mode === "highlight-unknown");
   document.querySelectorAll<HTMLElement>(".greek-line .w:not(.speaker)").forEach((sp) => {
     const key = sp.dataset.stripped ?? "";
     sp.classList.toggle("vk", mode === "highlight-unknown" && !!key && isKnown(key));
