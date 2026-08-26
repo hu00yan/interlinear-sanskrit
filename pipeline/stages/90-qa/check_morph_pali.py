@@ -31,7 +31,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
-sys.path.insert(0, os.path.join(HERE, "50-analyze"))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "50-analyze"))
 from pali_dpd import canon_key, lookup_key_of, fold_niggahita  # noqa: E402
 
 VALID_KEY = set("abcdefghijklmnopqrstuvwxyz~")
@@ -71,8 +71,10 @@ def gate_shards(data_root: str, errors: list) -> dict:
             n_keys += 1
             for a in analyses:
                 n_analyses += 1
-                if not all(isinstance(a.get(k), str) and a[k]
-                           for k in ("l", "p", "f", "x")):
+                if not isinstance(a.get("l"), str) or not a["l"] or \
+                        not isinstance(a.get("p"), str) or not a["p"] or \
+                        not all(isinstance(a.get(k), str)
+                                for k in ("f", "x")):
                     errors.append(f"{key!r}: analysis missing l/p/f/x: "
                                   f"{json.dumps(a, ensure_ascii=False)[:80]}")
                     break
