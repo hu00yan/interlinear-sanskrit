@@ -10,6 +10,11 @@ import { disp, registerUnitScripts, scriptPrefControls,
 import { devToIast, iastToDev, slp1KeyFor, slp1KeyVariants } from "./translit";
 import { compactFeatsEl, compactTagNode, lemmaDualEl,
   parseDcsFeats } from "./feats";
+import { groupHeadEl } from "./group-ui";
+import {
+  GLOSS_MAX_CHARS, MAX_VISIBLE_GROUPS, buildRankedGroups,
+  clipGloss, glossIdentity, rankedParses, type ParseGroup,
+} from "./group";
 import { attachMwGloss, compoundBlock, firstCompound, membersOf,
   mwGlossFor } from "./compound";
 import type { AnalyzeCandidate, AnalyzeResult } from "./parser-wasm";
@@ -308,15 +313,90 @@ function parseCards(word: string, ctx: RenderCtx): El {
   return col;
 }
 
-/** Compact analysis card: [lemma | abbr inflection] + MW gloss line. */
-function compactCard(p: Parse, _ctx: RenderCtx): El {
-  const card = el("div", "pcard pcard-compact");
-  const head = el("div", "cand-head");
-  head.appendChild(lemmaDualEl(dispLemma(p.l)));
-  head.appendChild(compactFeatsEl(p.p, p.f));
-  card.appendChild(head);
-  attachMwGloss(card, p.l ?? "");
-  return card;
+/* ---------------- ranked (lemma × POS-class) groups ----------------
+ * kim/ka disaster fix: shard arrays accumulate EVERY corpus occurrence's
+ * feature combo, so high-frequency forms rendered paradigm walls. The
+ * display now GROUPS by (lemma, POS-class) — one row per group, collapsed
+ * view capped at MAX_VISIBLE_GROUPS rows — ranks indeclinable readings and
+ * exact surface-form lemmas first, demotes proper-name homographs, and
+ * clips MW essay glosses to their first sentence. */
+
+/** Sync gloss text for ranking priors from the loaded ctx.gloss map. */
+function groupOpts(ctx: RenderCtx, word?: string): {
+  base: (p: Parse) => number;
+  glossOf: (l: string) => string | undefined;
+  form?: string;
+} {
+  return {
+    base: (p) => scoreParse(p, ctx.lemmaFreq, ctx.genre),
+    glossOf: (l) => ctx.gloss.get(stripAccents(l))?.g,
+    form: word,
+  };
+}
+
+/**
+ * One group row: `lemma abbr-feat-summary — short-gloss`. Wide variation
+ * prints compact SET notation ("m./n., sg./du./pl., various cases") instead
+ * of enumerating combos; the full grid lives only in the word panel.
+ * The gloss cell is appended empty; the caller paints it (deterministic
+ * repeat-suppression across a token's rows).
+ */
+function groupRow(g: ParseGroup): El {
+  const row = el("div", "pcard pcard-compact cand-row");
+  row.appendChild(groupHeadEl(g));
+  row.appendChild(el("div", "gloss mw-gloss"));
+  return row;
+}
+
+/**
+ * Paint every group row's gloss cell of one token IN ROW ORDER once all
+ * lookups settle: clipped at the first sentence boundary ≤120 chars
+ * (spec 4), suppressed entirely when an earlier row already showed the
+ * identical gloss. 无词条 → cell removed silently (R3).
+ */
+function paintGroupGlosses(items: Array<{ row: El; lemma: string }>): void {
+  void Promise.all(
+    items.map((it) => mwGlossFor(it.lemma ?? "")),
+  ).then((txts) => {
+    const seen = new Set<string>();
+    items.forEach((it, i) => {
+      const cell = it.row.querySelector(":scope > .mw-gloss") as El | null;
+      if (!cell || !cell.isConnected) return; // column re-rendered meanwhile
+      const t = txts[i];
+      if (!t) {
+        cell.remove();
+        return;
+      }
+      const id = glossIdentity(t);
+      if (seen.has(id)) {
+        cell.remove(); // identical gloss already shown on an earlier row
+        return;
+      }
+      seen.add(id);
+      cell.textContent = clipGloss(t, GLOSS_MAX_CHARS);
+    });
+  });
+}
+
+/** 「另有 N 解」 chip for group-rows beyond the collapsed cap. N counts
+ *  hidden GROUPS (not raw analyses) so the label matches what expansion adds. */
+function expandChip(
+  word: string,
+  nHidden: number,
+  totalGroups: number,
+  ctx: RenderCtx,
+): HTMLButtonElement {
+  const chip = el("button", "more-chip", `另有 ${nHidden} 解`) as
+    HTMLButtonElement;
+  chip.lang = "zh";
+  chip.type = "button";
+  chip.title = `${totalGroups} distinct readings — click to compare`;
+  chip.setAttribute(
+    "aria-label",
+    `${totalGroups} readings for ${word}; ${nHidden} more — click to show all`,
+  );
+  chip.addEventListener("click", () => toggleExpanded(word, ctx));
+  return chip;
 }
 
 /** Card-display lemma: DCS homonym digits ("दृश्1" -> "दृश्") are
@@ -336,31 +416,6 @@ function extrasLine(p: Parse): El | null {
   return el("div", "feats feat-extras", all.join(" · "));
 }
 
-/**
- * One expanded candidate: compact summary row — lemma, abbreviated
- * features, diff badges against same-lemma siblings, extras detail, gloss.
- */
-function candidateRow(
-  p: Parse,
-  idx: number,
-  group: Parse[],
-  ctx: RenderCtx,
-): El[] {
-  const row = el("div", "pcard cand-row");
-  const head = el("div", "cand-head");
-  head.appendChild(lemmaDualEl(dispLemma(p.l) || "?"));
-  for (const tok of diffTokens(group.map((g) => g.f),
-    group.indexOf(p))) {
-    head.appendChild(featBadge(tok));
-  }
-  row.appendChild(head);
-  row.appendChild(compactFeatsEl(p.p, p.f));
-  const ex = extrasLine(p);
-  if (ex) row.appendChild(ex);
-  attachMwGloss(row, p.l ?? "");
-  return [row];
-}
-
 /** (Re)render one word's parse column per current expansion state. */
 function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
   col.replaceChildren();
@@ -377,155 +432,43 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     return;
   }
 
-  const order = rankParses(parses, ctx.lemmaFreq, ctx.genre);
-  if (order.length > 1 && !expandedForms.has(key)) {
-    // COLLAPSED (R1, merged rows): ONE compact row — primary analysis
-    // first, genuine alternates joined inline with 「·」, capped at
-    // MAX_VISIBLE_ALTS visible; overflow renders the expand chip.
-    // Default state — never enumerate more until asked.
-    col.appendChild(mergedCard(word, parses, order, ctx));
-    const compMerged = compoundFor(word, ctx);
-    if (compMerged) col.appendChild(compMerged);
-    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
+  // GROUP by (lemma, POS-class) and rank with priors (kim/ka fix): the
+  // collapsed column shows at most MAX_VISIBLE_GROUPS group-rows; expansion
+  // shows every group. Never a raw paradigm enumeration again.
+  const groups = buildRankedGroups(parses, groupOpts(ctx, word));
+  if (!groups.length) {
+    appendDeepEntry(col, word);
     return;
   }
-
-  if (order.length > 1 && expandedForms.has(key)) {
-    // EXPANDED: every DEDUPED candidate, clearly separated
-    const groups = new Map<string, Parse[]>();
-    for (const i of order) {
-      const k = stripAccents(parses[i].l);
-      let arr = groups.get(k);
-      if (!arr) groups.set(k, (arr = []));
-      arr.push(parses[i]);
-    }
-    for (const i of order) {
-      candidateRow(parses[i], i, groups.get(stripAccents(parses[i].l))!, ctx)
-        .forEach((node) => col.appendChild(node));
-    }
-    const comp = compoundFor(word, ctx);
-    if (comp) col.appendChild(comp);
-    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
-    return;
+  const expanded = expandedForms.has(key) && groups.length > 1;
+  const visible = expanded ? groups : groups.slice(0, MAX_VISIBLE_GROUPS);
+  const painted: Array<{ row: El; lemma: string }> = [];
+  for (const g of visible) {
+    const row = groupRow(g);
+    col.appendChild(row);
+    painted.push({ row, lemma: g.lemma });
   }
-
-  // unambiguous single analysis: one compact card + samāsa members (R5)
-  col.appendChild(compactCard(parses[order[0]], ctx));
+  paintGroupGlosses(painted);
+  if (!expanded && groups.length > MAX_VISIBLE_GROUPS) {
+    col.appendChild(expandChip(
+      word,
+      groups.length - MAX_VISIBLE_GROUPS,
+      groups.length,
+      ctx,
+    ));
+  }
   const comp = compoundFor(word, ctx);
   if (comp) col.appendChild(comp);
   appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 
-/* ---------------- merged same-token analysis row ---------------- */
-
-/** Alternates shown inline after the primary before the chip kicks in.
- *  Hard cap per merge spec: at most 3 visible alternates. */
-const MAX_VISIBLE_ALTS = 3;
-
-/**
- * One compact card holding EVERY visible candidate of a token in a single
- * row: `rāma m. sg. nom. — gloss · rāma m. sg. acc. — gloss`. Replaces the
- * old top-2 stacked cards that read as duplicated lines. Overflow past the
- * alternate cap uses the existing 「另有 N 解」 chip mechanism. Segment
- * glosses paint after all resolve; an exact repeat of the preceding gloss
- * is suppressed so same-lemma alternates don't parrot the entry (the full
- * text stays in the word panel).
- */
-function mergedCard(
-  word: string,
-  parses: Parse[],
-  order: number[],
-  ctx: RenderCtx,
-): El {
-  const card = el("div", "pcard pcard-compact pcard-merged");
-  const head = el("div", "cand-head");
-  const visible = Math.min(1 + MAX_VISIBLE_ALTS, order.length);
-  const glossCells: El[] = [];
-  for (let k = 0; k < visible; k++) {
-    const p = parses[order[k]];
-    const seg = el("span", "cand-seg");
-    if (k > 0) {
-      const s = el("span", "seg-sep", "·");
-      s.setAttribute("aria-hidden", "true");
-      seg.appendChild(s);
-      seg.appendChild(document.createTextNode(" "));
-    }
-    seg.appendChild(lemmaDualEl(dispLemma(p.l)));
-    seg.appendChild(document.createTextNode(" "));
-    seg.appendChild(compactFeatsEl(p.p, p.f));
-    seg.appendChild(document.createTextNode(" "));
-    const g = el("span", "gloss seg-gloss");
-    g.appendChild(document.createTextNode("— "));
-    seg.appendChild(g);
-    glossCells.push(g);
-    head.appendChild(seg);
-  }
-  card.appendChild(head);
-  // paint glosses in segment order once every lookup settled: deterministic
-  // repeat-suppression (async per-cell fills could mis-attribute which
-  // segment "owns" the shared entry)
-  void Promise.all(
-    glossCells.map((_c, k) => mwGlossFor(parses[order[k]].l ?? "")),
-  ).then((txts) => {
-    let prev: string | null = null;
-    glossCells.forEach((g, i) => {
-      if (!g.isConnected) return; // column re-rendered meanwhile
-      const t = txts[i];
-      if (!t || t === prev) {
-        g.remove(); // 无词条 → omit silently; exact repeat → already shown
-        return;
-      }
-      prev = t;
-      g.append(t.length > 90 ? `${t.slice(0, 87)}…` : t);
-    });
-  });
-  const hidden = order.length - visible;
-  if (hidden > 0) card.appendChild(expandChip(word, hidden, order.length, ctx));
-  return card;
-}
-
-/** 「另有 N 解」 expander for candidates beyond the inline cap (existing
- *  chip mechanism: flips expansion for this form across all live columns). */
-function expandChip(
-  word: string,
-  nHidden: number,
-  total: number,
-  ctx: RenderCtx,
-): HTMLButtonElement {
-  const chip = el("button", "more-chip", `另有 ${nHidden} 解`) as
-    HTMLButtonElement;
-  chip.lang = "zh";
-  chip.type = "button";
-  chip.title = `${total} analyses — click to compare`;
-  chip.setAttribute(
-    "aria-label",
-    `${total} analyses for ${word}; ${nHidden} more — click to show all`,
-  );
-  chip.addEventListener("click", () => toggleExpanded(word, ctx));
-  return chip;
-}
-
-/** Dual-script grammar-tag badge with COMPACT abbreviation, e.g. [gen.]
- *  vs [dat.] — the disagreement made scannable without raw tag dumps. */
-function featBadge(tok: string): El {
-  const b = el("span", "diff-badge");
-  const { main } = parseDcsFeats(tok);
-  if (main.length) {
-    b.appendChild(compactTagNode(main[0]));
-    return b;
-  }
-  b.textContent = tok; // unmapped verbatim token
-  return b;
-}
-
-/** Compound-member mini-rows for this word: first ranked parse that carries
- *  a member chain wins. Null when the word isn't a compound (or the shards
- *  carry no chain for it). */
+/** Compound-member mini-rows for this word: first PRIOR-RANKED parse that
+ *  carries a member chain wins. Null when the word isn't a compound (or the
+ *  shards carry no chain for it). */
 function compoundFor(word: string, ctx: RenderCtx): El | null {
   const parses = ctx.morph.get(stripAccents(word)) ?? [];
   if (!parses.length) return null;
-  const order = rankParses(parses, ctx.lemmaFreq, ctx.genre);
-  return firstCompound(order.map((i) => parses[i]));
+  return firstCompound(rankedParses(parses, groupOpts(ctx, word)));
 }
 
 /* ---------------- wasm deep parse (opt-in enhancement) ----------------
@@ -1337,6 +1280,15 @@ export function renderControls(
   return { root: bar };
 }
 
+/** Best prior-ranked analysis of a token (panel actions, vocab marking). */
+function topParse(
+  parses: Parse[],
+  ctx: RenderCtx,
+  word?: string,
+): Parse | undefined {
+  return rankedParses(parses, groupOpts(ctx, word))[0];
+}
+
 /* ---------------- side panel ---------------- */
 
 let panel: El | null = null;
@@ -1396,7 +1348,7 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     if (isKnown(stripped)) unmarkKnown(stripped);
     else {
       const bestLemma = parses.length
-        ? parses[rankParses(parses)[0]].l
+        ? topParse(parses, ctx, word)?.l
         : undefined;
       markKnown(stripped, bestLemma);
     }
@@ -1410,16 +1362,26 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
   if (parses.length === 0) {
     body.appendChild(el("p", "word-form", "No analyses available for this form."));
   } else {
+    // GROUPED readings (kim/ka fix): one entry per (lemma, POS-class) group,
+    // ranked with priors — never a raw per-occurrence paradigm wall. The
+    // full Monier-Williams text for each distinct lemma stays below.
+    const groups = buildRankedGroups(parses, groupOpts(ctx, word));
     body.appendChild(
-      el("p", "word-form", `${parses.length} analysis${parses.length > 1 ? "es" : ""}`),
+      el("p", "word-form",
+        `${groups.length} reading${groups.length > 1 ? "s" : ""}`),
     );
-    for (const parse of parses) {
+    for (const g of groups) {
       const entry = el("div", "entry");
-      entry.appendChild(lemmaDualEl(parse.l || "?"));
-      entry.appendChild(compactFeatsEl(parse.p, parse.f));
-      const ex = extrasLine(parse);
-      if (ex) entry.appendChild(ex);
-      attachMwGloss(entry, parse.l ?? "");
+      entry.appendChild(groupHeadEl(g));
+      if (g.members.length === 1) {
+        // unmapped f-extras + x-field stay visible in panel detail (R2/R5)
+        const ex = extrasLine(g.members[0]!);
+        if (ex) entry.appendChild(ex);
+      } else {
+        entry.appendChild(el("div", "feats feat-extras",
+          `${g.members.length} attested combos`));
+      }
+      attachMwGloss(entry, g.lemma ?? "");
       body.appendChild(entry);
     }
   }
@@ -1444,10 +1406,11 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
     }
   }
 
-  // deep-link into the lexicon drawer, prefilled with the best lemma
+  // deep-link into the lexicon drawer, prefilled with the best-ranked
+  // reading's lemma (prior-aware: interrogative kim, not the noun homograph)
   if (parses.length) {
-    const best = parses[rankParses(parses)[0]];
-    if (best.l) {
+    const best = topParse(parses, ctx, word);
+    if (best?.l) {
       const jump = el("button", undefined, "Open in Lexicon ↗") as HTMLButtonElement;
       jump.type = "button";
       jump.addEventListener("click", () => openLexicon(best.l));

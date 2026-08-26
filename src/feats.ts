@@ -218,6 +218,41 @@ function featTagEl2(abbr: string, orig: string): El {
   return span;
 }
 
+/* ---------------- structured feature slots (group summaries) ---------------- */
+
+/** One analysis' inflectional slots as compact-abbr SETS. */
+export interface FeatSlots {
+  tense: Set<string>;
+  person: Set<string>;
+  voice: Set<string>;
+  gender: Set<string>;
+  number: Set<string>;
+  kcase: Set<string>;
+}
+
+/**
+ * Classify one DCS f-string into per-dimension abbr sets ("पुं;7;बहु" ->
+ * gender {m.}, case {loc.}, number {pl.}). Extras (Cpd…) are ignored —
+ * group summaries enumerate inflection only. Shared by src/group.ts.
+ */
+export function featSlotsOf(f: string): FeatSlots {
+  const s: FeatSlots = {
+    tense: new Set(), person: new Set(), voice: new Set(),
+    gender: new Set(), number: new Set(), kcase: new Set(),
+  };
+  for (const t of (f ?? "").split(/[;\s|]+/).filter(Boolean)) {
+    if (ABBR_LAKARA[t]) s.tense.add(ABBR_LAKARA[t]);
+    else if (ABBR_PERSON[t]) s.person.add(ABBR_PERSON[t]);
+    else if (ABBR_VOICE[t]) s.voice.add(ABBR_VOICE[t]);
+    else if (ABBR_GENDER[t]) s.gender.add(ABBR_GENDER[t]);
+    else if (ABBR_NUMBER[t]) s.number.add(ABBR_NUMBER[t]);
+    else if (/^\d$/.test(t)) {
+      if (ABBR_CASE[t]) s.kcase.add(ABBR_CASE[t]);
+    } else if (ABBR_CASE[t]) s.kcase.add(ABBR_CASE[t]);
+  }
+  return s;
+}
+
 /**
  * Compact .feats line for a shard analysis (p + f): POS label then
  * abbreviated inflection. Extras are returned via parseDcsFeats by the

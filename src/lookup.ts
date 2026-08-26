@@ -8,13 +8,15 @@
 //   Latin input      -> iastToDev for the morphology index, slp1KeyFor keys
 //                       the MW gloss shards (same path as the reader panel)
 // Results render with the shared dual-script grammar tags (feats.ts).
-import { fetchJSON, loadMorph, stripAccents,
-  type Parse } from "./api";
+import { fetchJSON, loadGloss, loadMorph, stripAccents,
+  type Gloss, type Parse } from "./api";
 import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
   slp1KeyVariants } from "./translit";
-import { compactFeatsEl, featTagEl, lemmaDualEl,
-  parseDcsFeats } from "./feats";
-import { attachMwGloss, compoundBlock } from "./compound";
+import { featTagEl, lemmaDualEl } from "./feats";
+import { groupHeadEl } from "./group-ui";
+import { MAX_VISIBLE_GROUPS, buildRankedGroups,
+  clipGloss, type ParseGroup } from "./group";
+import { compoundBlock, mwGlossFor } from "./compound";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -29,9 +31,7 @@ interface MwEntry {
   g: string; // English gloss
 }
 
-const MAX_PARSES = 8;
 const MAX_MW = 6;
-
 /** Monier-Williams entries for a query in either script: exact shard key
  *  first, then headwords beginning with the same key (prefix discovery,
  *  mirroring the Greek lexicon's LSJ headword scan). Misses return []. */
@@ -84,25 +84,47 @@ function lemmaEl(lemma: string): El {
   return lemmaDualEl(lemma);
 }
 
-/** One parse card, mirroring the reader's collapsed best-parse card. */
-function parseCardEl(p: Parse): El {
-  const card = el("div", "pcard wl-card");
-  const head = el("div", "cand-head");
-  head.appendChild(lemmaEl(p.l || "?"));
-  card.appendChild(head);
-  // compact abbr inflection (R2); x-extras muted beneath
-  card.appendChild(compactFeatsEl(p.p, p.f));
-  const extras = parseDcsFeats(p.f ?? "").extras
-    .concat((p.x ?? "").split(/[|\s]+/).filter(Boolean));
-  if (extras.length) {
-    card.appendChild(el("div", "feats feat-extras", extras.join(" · ")));
-  }
-  // MW gloss keyed by the lemma; silent when absent (R3)
-  attachMwGloss(card, p.l ?? "");
-  // samāsa member mini-rows when this analysis carries a chain
-  const comp = compoundBlock(p);
+/**
+ * One grouped reading card, mirroring the reader's collapsed group-row:
+ * `lemma abbr-feat-summary` + clipped MW gloss + samāsa block. The gloss
+ * cell is filled by paintGroupGlosses-like async logic in renderGroupCards
+ * (deterministic repeat-suppression across cards).
+ */
+function groupCardEl(g: ParseGroup): El {
+  const card = el("div", "pcard wl-card cand-row");
+  card.appendChild(groupHeadEl(g));
+  card.appendChild(el("div", "gloss mw-gloss"));
+  // samāsa member mini-rows when the representative analysis carries a chain
+  const comp = compoundBlock(g.members[0]!);
   if (comp) card.appendChild(comp);
   return card;
+}
+
+/** Paint group-card glosses in order; clip ≤120 chars; show repeats once. */
+function paintGroupCards(
+  cards: Array<{ card: El; lemma: string }>,
+): void {
+  void Promise.all(
+    cards.map((c) => mwGlossFor(c.lemma ?? "")),
+  ).then((txts) => {
+    const seen = new Set<string>();
+    cards.forEach((c, i) => {
+      const cell = c.card.querySelector(":scope > .mw-gloss") as El | null;
+      if (!cell || !cell.isConnected) return;
+      const t = txts[i];
+      if (!t) {
+        cell.remove();
+        return;
+      }
+      const id = clipGloss(t).toLowerCase();
+      if (seen.has(id)) {
+        cell.remove(); // identical gloss already shown above
+        return;
+      }
+      seen.add(id);
+      cell.textContent = clipGloss(t);
+    });
+  });
 }
 
 function mwCard(e: MwEntry): El {
@@ -142,6 +164,18 @@ async function run(
   if (mySeq !== seq || !results.isConnected) return; // stale keystroke / torn down
 
   const parses = dedupeParses(morphMap.get(deva) ?? []);
+  // preload lemma glosses BEFORE ranking: proper-name homograph demotion
+  // needs the MW gloss text (ka -> "N. of Prajāpati" must not outrank the
+  // interrogative particle reading)
+  const glossMap = parses.length
+    ? await loadGloss([...new Set(parses.map((p) => p.l))])
+      .catch(() => new Map<string, Gloss>())
+    : new Map<string, Gloss>();
+  if (mySeq !== seq || !results.isConnected) return; // stale keystroke
+  const groups = buildRankedGroups(parses, {
+    glossOf: (l) => glossMap.get(stripAccents(l))?.g,
+    form: deva,
+  });
   if (!parses.length && !mw.length) {
     results.appendChild(
       el("p", "lex-hint-empty",
@@ -149,17 +183,51 @@ async function run(
     );
     return;
   }
-  if (parses.length) {
+  if (groups.length) {
     results.appendChild(el("h3", "wl-head",
-      `解析 Grammar · ${parses.length} analysis${parses.length > 1 ? "es" : ""}`));
-    for (const p of parses.slice(0, MAX_PARSES)) {
-      results.appendChild(parseCardEl(p));
+      `解析 Grammar · ${groups.length} reading${groups.length > 1 ? "s" : ""}`));
+    const visibleGroups = groups.slice(0, MAX_VISIBLE_GROUPS);
+    const cards = visibleGroups.map((g) => {
+      const card = groupCardEl(g);
+      results.appendChild(card);
+      return { card, lemma: g.lemma };
+    });
+    paintGroupCards(cards);
+    if (groups.length > MAX_VISIBLE_GROUPS) {
+      results.appendChild(lookupExpandChip(groups, visibleGroups.length));
     }
   }
   if (mw.length) {
     results.appendChild(el("h3", "wl-head", "Monier-Williams"));
     for (const e of mw.slice(0, MAX_MW)) results.appendChild(mwCard(e));
   }
+}
+
+/**
+ * 「另有 N 解」 chip for lookup readings beyond the collapsed cap: expands
+ * IN PLACE, appending the remaining ranked group cards to the results list.
+ */
+function lookupExpandChip(groups: ParseGroup[], nVisible: number):
+  HTMLButtonElement {
+  const chip = el("button", "more-chip",
+    `另有 ${groups.length - nVisible} 解`) as HTMLButtonElement;
+  chip.lang = "zh";
+  chip.type = "button";
+  chip.title = `${groups.length} distinct readings — click to show all`;
+  chip.setAttribute("aria-label",
+    `${groups.length} readings; ${groups.length - nVisible} more — click to show all`);
+  chip.addEventListener("click", () => {
+    const list = chip.parentElement;
+    if (!list) return;
+    const cards = groups.slice(nVisible).map((g) => {
+      const card = groupCardEl(g);
+      list.insertBefore(card, chip);
+      return { card, lemma: g.lemma };
+    });
+    paintGroupCards(cards);
+    chip.remove();
+  });
+  return chip;
 }
 
 let seq = 0;

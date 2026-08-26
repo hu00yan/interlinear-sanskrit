@@ -7,6 +7,7 @@
 // Shared by the reader parse cards + side panel, and the lookup surfaces.
 import { fetchJSON, stripAccents, type Parse } from "./api";
 import { slp1KeyFor, slp1KeyVariants } from "./translit";
+import { GLOSS_MAX_CHARS, clipGloss } from "./group";
 import { compactTagNode, isDevaStr, lemmaDualEl,
   parseDcsFeats } from "./feats";
 
@@ -137,7 +138,7 @@ function memberRow(m: CompoundMember, idx: number, total: number): El {
       gl.remove(); // 无词条 → omit silently, never a loud placeholder
       return;
     }
-    gl.textContent = g.length > 160 ? `${g.slice(0, 157)}…` : g;
+    gl.textContent = clipGloss(g, 160);
   });
   if (idx < total - 1) row.appendChild(el("span", "comp-plus", "+"));
   return row;
@@ -173,12 +174,15 @@ export function firstCompound(parses: Parse[]): El | null {
  * by the analysis LEMMA (slp1-keyed exact shard hit). The cell is appended
  * empty and filled async; when the shards have no entry the cell removes
  * itself — no loud placeholder, ever.
+ * Gloss text clips at the first sentence boundary ≤ GLOSS_MAX_CHARS (kim
+ * essay-gloss fix): full text stays in expander surfaces — the word panel's
+ * Monier-Williams section and the lexicon drawer.
  * Shared by reader cards (render.ts), word-lookup (lookup.ts), lexicon.
  */
 export function attachMwGloss(
   parent: HTMLElement,
   lemma: string,
-  maxChars = 180,
+  maxChars = GLOSS_MAX_CHARS,
 ): void {
   const g = document.createElement("div");
   g.className = "gloss mw-gloss";
@@ -189,6 +193,6 @@ export function attachMwGloss(
       g.remove();
       return;
     }
-    g.textContent = txt.length > maxChars ? `${txt.slice(0, maxChars - 3)}…` : txt;
+    g.textContent = clipGloss(txt, maxChars);
   });
 }
