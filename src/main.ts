@@ -20,7 +20,8 @@ import { renderAbout, aboutLink } from "./about";
 import { initPWA } from "./pwa";
 import { renderHome } from "./home";
 import {
-  continueReadingSection, getRecent, saveRecent, setUnitContext,
+  continueReadingSection, getFocusedRef, getRecent, saveRecent,
+  setFocusedRef, setUnitContext,
 } from "./bookmarks";
 import { setupTranslationLayer, type TlLayerHandle } from "./zh-layer";
 import { setupSidebar, teardownSidebar, type SidebarHandle } from "./sidebar";
@@ -132,7 +133,7 @@ async function openWork(
 ): Promise<void> {
   const found = await resolveWork(workId);
   if (!found) {
-    app.replaceChildren(el("p", "crumbs", `Unknown work ${workId}.`));
+    app.replaceChildren(el("p", "unparsed-note", `Unknown work ${workId}.`));
     return;
   }
   // Legacy bare-id route to a Pali work: canonical home is #/pali/<id>.
@@ -371,19 +372,28 @@ async function openReader(
   if (refParam) {
     await jumpToRef(state, refParam);
   }
-  // record position immediately so "Continue reading" has fresh data
-  saveRecent(authorKey, workId,
-    state.body.querySelector<HTMLElement>("[data-ref]")?.dataset.ref ?? "");
+  // record position immediately from the CURRENT focused unit (jump target
+  // when ?ref= was given, else the top of the rendered page), so
+  // "Continue reading" never points at page[0] until the first scroll.
+  const focusRef =
+    getFocusedRef() ??
+    state.body.querySelector<HTMLElement>("[data-ref]")?.dataset.ref ??
+    null;
+  setFocusedRef(focusRef);
+  if (focusRef) saveRecent(authorKey, workId, focusRef);
 
   // track reading position on scroll (debounced; topmost visible unit wins)
   let saveTimer = 0;
   const onScrollSave = (): void => {
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
-      if (!location.hash.startsWith(`#/${authorKey}/${workId}`)) return;
+      // route shapes here: '#/<workId>' (Sanskrit) and '#/pali/<workId>'
+      const route = location.hash.replace(/^#\/?/, "").split("?")[0];
+      if (route !== workId && route !== `pali/${workId}`) return;
       const rows = state.body.querySelectorAll<HTMLElement>("[data-ref]");
       for (const r of Array.from(rows)) {
         if (r.getBoundingClientRect().bottom < 0) continue;
+        setFocusedRef(r.dataset.ref!);
         saveRecent(authorKey, workId, r.dataset.ref!);
         break;
       }
@@ -415,6 +425,7 @@ async function jumpToRef(
     guard += 1;
   }
   if (!target) return;
+  setFocusedRef(ref);
   target.scrollIntoView({ block: "center" });
   target.classList.add("ref-flash");
   window.setTimeout(() => target!.classList.remove("ref-flash"), 2400);

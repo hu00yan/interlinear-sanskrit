@@ -153,10 +153,26 @@ export function importJSON(text: string): { added: number; bad: boolean } {
 
 let ctxTlg: string | null = null;
 let ctxWid: string | null = null;
+let ctxRef: string | null = null;
 
-export function setUnitContext(authorKey: string | null, wid: string | null): void {
+export function setUnitContext(
+  authorKey: string | null,
+  wid: string | null,
+  ref?: string,
+): void {
   ctxTlg = authorKey;
   ctxWid = wid;
+  if (ref !== undefined) ctxRef = ref;
+}
+
+/** Track the unit the reader is currently focused on (deep-link target or
+ *  topmost visible row); saveRecent uses this instead of page[0]. */
+export function setFocusedRef(ref: string | null): void {
+  ctxRef = ref;
+}
+
+export function getFocusedRef(): string | null {
+  return ctxRef;
 }
 
 /** Per-unit star button for unit-actions; hidden without reader context. */
