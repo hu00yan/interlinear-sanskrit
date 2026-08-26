@@ -1,0 +1,114 @@
+{
+  "workId": "bhagavata",
+  "started": "2026-08-26T11:24:22",
+  "status": "ok",
+  "stages": [
+    {
+      "stage": "10-fetch",
+      "status": "ok",
+      "duration_ms": 43,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "10-fetch.json"
+      ]
+    },
+    {
+      "stage": "20-normalize",
+      "status": "ok",
+      "duration_ms": 912,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "20-normalize.json"
+      ]
+    },
+    {
+      "stage": "30-tokenize",
+      "status": "ok",
+      "duration_ms": 3615,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "30-tokenize.json"
+      ]
+    },
+    {
+      "stage": "40-align",
+      "status": "skipped",
+      "duration_ms": 0,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [],
+      "reason": "single-language surface-form text; no translation lane yet"
+    },
+    {
+      "stage": "50-analyze",
+      "status": "skipped",
+      "duration_ms": 0,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [],
+      "reason": "morph lane PENDING-MIGRATION (build_morph_dcs.py owned by another workstream)"
+    },
+    {
+      "stage": "60-gloss",
+      "status": "skipped",
+      "duration_ms": 0,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [],
+      "reason": "PENDING-MIGRATION (build_glosses.py)"
+    },
+    {
+      "stage": "70-emit",
+      "status": "ok",
+      "duration_ms": 295,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "out/_artifacts/bhagavata-counts.json",
+        "out/texts/purana/bhagavata-01.json",
+        "out/texts/purana/bhagavata-02.json",
+        "out/texts/purana/bhagavata-03.json",
+        "out/texts/purana/bhagavata-04.json",
+        "out/texts/purana/bhagavata-05.json",
+        "out/texts/purana/bhagavata-06.json",
+        "out/texts/purana/bhagavata-07.json",
+        "out/texts/purana/bhagavata-08.json",
+        "out/texts/purana/bhagavata-09.json",
+        "out/texts/purana/bhagavata-10.json",
+        "out/texts/purana/bhagavata-11.json",
+        "out/texts/purana/bhagavata-12.json"
+      ]
+    },
+    {
+      "stage": "90-qa",
+      "status": "ok",
+      "duration_ms": 366,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "90-qa.json"
+      ]
+    }
+  ],
+  "manifest": "/Users/huyan00/mycode/interlinear-sanskrit/pipeline/works/bhagavata.json",
+  "published": [
+    "texts/purana/bhagavata-01.json",
+    "texts/purana/bhagavata-02.json",
+    "texts/purana/bhagavata-03.json",
+    "texts/purana/bhagavata-04.json",
+    "texts/purana/bhagavata-05.json",
+    "texts/purana/bhagavata-06.json",
+    "texts/purana/bhagavata-07.json",
+    "texts/purana/bhagavata-08.json",
+    "texts/purana/bhagavata-09.json",
+    "texts/purana/bhagavata-10.json",
+    "texts/purana/bhagavata-11.json",
+    "texts/purana/bhagavata-12.json"
+  ],
+  "publish_root": "public/data",
+  "finished": "2026-08-26T11:24:28",
+  "duration_ms": 5249
+}

@@ -1,0 +1,94 @@
+{
+  "workId": "pali-dn",
+  "started": "2026-08-26T11:24:20",
+  "status": "ok",
+  "stages": [
+    {
+      "stage": "10-fetch",
+      "status": "ok",
+      "duration_ms": 51,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "10-fetch.json"
+      ]
+    },
+    {
+      "stage": "20-normalize",
+      "status": "ok",
+      "duration_ms": 195,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "20-normalize.json"
+      ]
+    },
+    {
+      "stage": "30-tokenize",
+      "status": "ok",
+      "duration_ms": 217,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "30-tokenize.json"
+      ]
+    },
+    {
+      "stage": "40-align",
+      "status": "ok",
+      "duration_ms": 136,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "40-align.json"
+      ]
+    },
+    {
+      "stage": "50-analyze",
+      "status": "skipped",
+      "duration_ms": 0,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [],
+      "reason": "morph lane PENDING-MIGRATION (build_morph_dcs.py owned by another workstream)"
+    },
+    {
+      "stage": "60-gloss",
+      "status": "skipped",
+      "duration_ms": 0,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [],
+      "reason": "PENDING-MIGRATION (build_glosses.py)"
+    },
+    {
+      "stage": "70-emit",
+      "status": "ok",
+      "duration_ms": 139,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "out/texts/pali/dn.json",
+        "out/trans/pali-dn-sujato.json"
+      ]
+    },
+    {
+      "stage": "90-qa",
+      "status": "ok",
+      "duration_ms": 104,
+      "errors": [],
+      "warnings": [],
+      "artifacts": [
+        "90-qa.json"
+      ]
+    }
+  ],
+  "manifest": "/Users/huyan00/mycode/interlinear-sanskrit/pipeline/works/pali-dn.json",
+  "published": [
+    "texts/pali/dn.json",
+    "trans/pali-dn-sujato.json"
+  ],
+  "publish_root": "public/data",
+  "finished": "2026-08-26T11:24:21",
+  "duration_ms": 882
+}
