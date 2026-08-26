@@ -3,7 +3,6 @@ Gate: `node tests/corpus-scorecard.mjs` → corpus-scorecard.csv + assets/corpus
 Per work M1 maxRows(=1 collapsed) · M2 dupRows · M3 cjkLeaks · M4 m4Bad · M5 glossMax · EXP chip round-trip + carded% (strict-hit proxy), densityPx. Grade D ⇒ any display red; else A/B/C by carded%.
 
 ## Result: **A=27 B=18 C=65 D=0** · median carded% 32.3
-
 Display reds before fix: 2/110 (`pali-abhidhamma-ya`, `-patthana`, EXP `expand 1→1`).
 Root cause (src/render.ts registerCol): columns register while DETACHED (parseCards runs pre-attach), so the
 synchronous `length>64 → isConnected` prune discarded freshly pushed columns wherever one form repeats >64×/page;
