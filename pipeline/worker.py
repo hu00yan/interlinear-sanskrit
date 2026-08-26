@@ -227,6 +227,20 @@ def main() -> int:
             print("[worker] search-index gate FAILED after publish",
                   file=sys.stderr)
             return 1
+        # Pali DPD morphology gate (stages/90-qa/check_morph_pali.py):
+        # shard shape + per-work sampled coverage + ṁ/ṃ fold sanity.
+        # Self-skips when public/data/morph-pali has not been built.
+        pali = subprocess.run(
+            [sys.executable,
+             os.path.join(HERE, "stages", "90-qa", "check_morph_pali.py"),
+             "--data-root", args.out_root],
+            cwd=REPO, capture_output=True, text=True)
+        sys.stdout.write(pali.stdout)
+        sys.stderr.write(pali.stderr)
+        if pali.returncode != 0:
+            print("[worker] morph-pali gate FAILED after publish",
+                  file=sys.stderr)
+            return 1
     return 1 if any_failed else 0
 
 
