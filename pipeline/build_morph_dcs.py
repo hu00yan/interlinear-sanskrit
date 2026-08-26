@@ -17,7 +17,17 @@ Shard contract (unchanged — see src/api.ts loadMorph):
 
 Key derivation: slp1_key() of the sandhied CoNLL-U FORM plus the MISC
 Unsandhied variant (and hyphen-separated members of either) — same tiering
-as build_morph.form_keys. Keys must match [a-z~]+.
+as build_morph.form_keys; avagraha apostrophes are stripped first
+(_strip_apostrophes: DCS elided rows "'pi" and display "तेऽपि" then derive
+the same lossless key the client's canonicalKeysFor computes). Keys must
+match [a-z~]+.
+
+Sandhi-fusion spans (qa lotus-keys.md): consecutive DCS rows whose FORMs
+concatenate to a real site display token ("abhūd"+"anīñja"+"mānena" ->
+ऽभूदनिञ्जमानेन) additionally yield an entry composed ONLY of those rows'
+own analyses (member-chain shape, like compounds); merge() gates span
+candidates on the site's own token keys so shards grow only where a
+reader surface exists. Never borrows another word's analyses.
 
 Tag normalization onto the EXISTING reader-facing vocabulary
 (build_morph.py conventions; Samsaadhanii-style Devanagari tags):
@@ -94,6 +104,17 @@ NEW_WORKS = [
 
 VALID_KEY = re.compile(r"[a-z~]+")
 PUNCT_RE = re.compile(r"^[\u0964\u09650-9.,;:!?\u201c\u201d'\"()\-\s]+$")
+
+# Sandhi-fusion span caps (lotus-keys fix): how many adjacent DCS rows may
+# be concatenated into one fused-surface key, and min/max concat length.
+# MIN exists because short coincidental concats are FALSE fusions (site
+# token इमु/सत्त्वान vs rows "Im|u", "sattvA|n"): real fused reader surfaces
+# in this corpus are long (एकस्मिन्समये, उपायकौशल्य), while short tokens are
+# words in their own right. merge() additionally gates spans on the site's
+# own display-token keys, so only real reader surfaces land in shards.
+MAX_SPAN = 4
+SPAN_MIN_CHARS = 8
+SPAN_MAX_CHARS = 48
 
 # --- UD -> existing-tag vocabulary ------------------------------------------
 CASE = {"Nom": "1", "Acc": "2", "Ins": "3", "Dat": "4", "Abl": "5",
@@ -192,6 +213,19 @@ def map_feats(upos: str, feats: dict) -> str:
     return ";".join(tags + [e for e in extras if e])
 
 
+def _strip_apostrophes(text: str) -> str:
+    """Drop avagraha artifacts (') from key candidates.
+
+    DCS writes initial-vowel elision as a LEADING apostrophe in FORM
+    ("'pi", "'rhan"); SLP1 renders display avagraha (तेऽपि) as an embedded
+    one. The elision info is never lost analytically (the Unsandhied column
+    and/or the neighbouring row carries it), and the client's
+    canonicalKeysFor() mirror drops U+2019 when deriving lookup keys — so
+    stripping here is LOSSLESS and makes both sides meet on one key.
+    """
+    return text.replace("'", "").replace("\u2019", "")
+
+
 def _canonical_keys(text: str):
     """All valid shard-key spellings for one surface form.
 
@@ -202,11 +236,18 @@ def _canonical_keys(text: str):
     so every ai/au word would otherwise split into two non-meeting key
     flavors. Derive BOTH flavors (raw + via the other script) so shards
     carry aliases and either lookup flavor resolves. Same-word aliases
-    only; no new collisions are introduced.
+    only; no new collisions are introduced. Apostrophes (avagraha) are
+    stripped first — see _strip_apostrophes().
     """
+    text = _strip_apostrophes(text)
     out = []
 
     def add(k):
+        # strip on the KEY too: Devanagari ऽ (U+093D) turns into an SLP1
+        # apostrophe only during conversion, so input-level stripping alone
+        # misses display tokens like तेऽपि / ऽपि
+        if k:
+            k = _strip_apostrophes(k)
         if k and VALID_KEY.fullmatch(k) and k not in out:
             out.append(k)
 
@@ -251,8 +292,16 @@ def parse_feats(field: str) -> dict:
     return out
 
 
+def _avagraha_deva(form: str) -> str:
+    """Display Devanagari for a DCS form: leading elision apostrophe
+    becomes avagraha (ऽ) so member chips read like the fused surface."""
+    s = form.lstrip("'\u2019")
+    lead = "\u093d" * (len(form) - len(s))
+    return lead + transliterate(s, IAST, DEVA)
+
+
 def conllu_analyses(path: str):
-    """Yield (form_keys, entry_dict) per real token line.
+    """Yield (form_keys, entry_dict, is_span) per real token line.
 
     Compound chains: a range row ("1-3\ttapaḥsvādhyāyanirataṃ") opens a
     pending compound; the following numbered member rows carry each
@@ -260,10 +309,23 @@ def conllu_analyses(path: str):
     members arrived, the COMPOUND surface form yields an entry carrying
     "m": [{d,l,p,f}, …] so the reader can annotate every member. Member
     rows still yield their own standalone analyses exactly as before.
+
+    Sandhi-fusion spans (lotus-keys fix): our tokenizer sometimes keeps a
+    sandhi-fused surface as ONE display token where DCS stores several
+    adjacent rows ("abhūd | anīñja | mānena" -> ऽभूदनिञ्जमानेन). The last
+    MAX_SPAN consecutive rows are additionally yielded as SPAN candidates:
+    keys derived from the concatenated FORMs, entry = member chain built
+    ONLY from those same rows (never another word's analyses). merge()
+    gates spans on the site's own display-token keys, so shards grow only
+    where a real reader surface hits. is_span lets it apply that gate.
     """
     pending = None  # {"form": str, "left": int, "members": [dict]}
+    hist = []       # last <=MAX_SPAN real rows: {keys, entry, d}
     for line in open(path, encoding="utf-8"):
-        if line.startswith("#") or not line.strip():
+        if line.startswith("#"):
+            continue
+        if not line.strip():
+            hist.clear()  # sentence boundary: never fuse across sentences
             continue
         c = line.rstrip("\n").split("\t")
         if len(c) < 6 or "." in c[0]:
@@ -313,7 +375,7 @@ def conllu_analyses(path: str):
                 pend = pending
                 pending = None
                 if entry is not None:
-                    yield keys, entry
+                    yield keys, entry, False
                 del pend
 
         unsand = ""
@@ -324,15 +386,49 @@ def conllu_analyses(path: str):
         for k in form_keys(unsand):
             if k not in keys:
                 keys.append(k)
+        row_entry = None
         if not keys or not lemma or lemma == "_":
             # still yield keys with a bare entry so the surface index can
             # resolve the form even without a usable lemma
             if not keys:
+                hist.clear()  # unusable row: don't fuse spans over it
                 continue
-            yield keys, None
+            yield keys, None, False
+            hist.clear()
             continue
         dev = transliterate(lemma, IAST, DEVA)
-        yield keys, {"l": dev, "p": pos, "f": f}
+        row_entry = {"l": dev, "p": pos, "f": f}
+        yield keys, row_entry, False
+
+        # --- sandhi-fusion span candidates (see docstring) ----------------
+        hist.append({"form": _strip_apostrophes(form), "keys": keys,
+                     "entry": row_entry, "d": _avagraha_deva(form)})
+        if len(hist) > MAX_SPAN:
+            hist.pop(0)
+        if len(hist) >= 2:
+            for n in range(2, len(hist) + 1):
+                rows = hist[-n:]
+                concat = "".join(r["form"] for r in rows)
+                if len(concat) < SPAN_MIN_CHARS \
+                        or len(concat) > SPAN_MAX_CHARS:
+                    continue
+                skeys = form_keys(concat)
+                if not skeys:
+                    continue
+                members = [{"d": r["d"], "l": r["entry"]["l"],
+                            "p": r["entry"]["p"], "f": r["entry"]["f"]}
+                           for r in rows]
+                # Negator-final concats are coincidental row adjacency, not
+                # reader surfaces: "sattvA|na", "srutvA|n" from unrelated
+                # sentences matched site inflected forms (सत्त्वान, श्रुत्वान).
+                # Real enclitic fusions end in ca/eva/tu/api/ha/... (kept);
+                # the negator na never encliticizes into the previous
+                # word's token, so a na-final chain is never a real fusion.
+                if members[-1]["l"] == "\u0928":
+                    continue
+                last = members[-1]
+                yield skeys, {"l": last["l"], "p": last["p"],
+                              "f": last["f"], "m": members}, True
 
 
 def load_existing():
@@ -354,13 +450,30 @@ def _entry_tup(entry: dict) -> tuple:
     return (entry.get("l"), entry.get("p"), entry.get("f"), msig)
 
 
-def merge(shards):
+def site_key_allowlist(toks_by_work) -> set:
+    """Every canonical shard key any site display token (or hyphen member)
+    could ever look up — the gate for span-candidate emission."""
+    allowed = set()
+    for toks in toks_by_work.values():
+        for tok in toks:
+            if PUNCT_RE.match(tok):
+                continue
+            allowed.update(_canonical_keys(tok))
+            if "-" in tok:
+                for mem in tok.split("-"):
+                    allowed.update(_canonical_keys(mem.strip()))
+    return allowed
+
+
+def merge(shards, span_gate=None):
     """Union DCS analyses into shards.
 
     Returns (n_new_keys, per_work_stats, key_origin) where per_work_stats
     maps work-dir -> [tokens_seen, keys_added] and key_origin maps each
     newly-created shard key -> the work dir that first contributed it
-    (used for per-work spot checks).
+    (used for per-work spot checks). span_gate = set of site-derived keys;
+    sandhi-fusion span candidates merge ONLY when one of their keys is in
+    it (bounds growth to real reader surfaces).
     """
     roots = [(SRC_DIR, "*")]
     for w in NEW_WORKS:
@@ -379,7 +492,7 @@ def merge(shards):
         for k, entries in bucket.items():
             for e in entries:
                 seen_pairs.add((k,) + _entry_tup(e))
-    n_new_keys = n_dup = n_tok = 0
+    n_new_keys = n_dup = n_tok = n_span = 0
     per_work = {}
     key_origin = {}
     r1_dirs = {os.path.basename(d)
@@ -387,9 +500,14 @@ def merge(shards):
     for fp in files:
         work = os.path.basename(os.path.dirname(fp))
         st = per_work.setdefault(work, [0, 0])
-        for keys, entry in conllu_analyses(fp):
-            n_tok += 1
-            st[0] += 1
+        for keys, entry, is_span in conllu_analyses(fp):
+            if is_span:
+                if span_gate is None or not span_gate.intersection(keys):
+                    continue
+                n_span += 1
+            else:
+                n_tok += 1
+                st[0] += 1
             if entry is None:
                 continue
             etup = _entry_tup(entry)
@@ -410,7 +528,7 @@ def merge(shards):
             if not fresh:
                 n_dup += 1
     print(f"[dcs-morph] tokens={n_tok} new_keys={n_new_keys} "
-          f"dup_entries_skipped={n_dup}")
+          f"dup_entries_skipped={n_dup} span_candidates_gated_in={n_span}")
     for work in sorted(per_work):
         if work not in r1_dirs:
             toks, added = per_work[work]
@@ -457,11 +575,12 @@ def collect_tokens():
     return toks_by_work
 
 
-def emit_surface_index(shards):
+def emit_surface_index(shards, toks_by_work=None):
     keys = set()
     for bucket in shards.values():
         keys |= set(bucket)
-    toks_by_work = collect_tokens()
+    if toks_by_work is None:
+        toks_by_work = collect_tokens()
     all_toks = set()
     for s in toks_by_work.values():
         all_toks |= s
@@ -684,14 +803,33 @@ def validate(toks_by_work, index, shards):
         hit = sum(n for t, n in occ.items()
                   if not PUNCT_RE.match(t) and t in index)
         pct = 100 * hit / word_occ if word_occ else 0.0
+        # STRICT (client-equivalent) rate: a token counts only when one of
+        # its OWN canonical spellings is a shard key — the surface index's
+        # stem-prefix fallbacks do NOT count (the reader's trust gate drops
+        # them; qa lotus-keys.md). This is the honest number.
+        strict_hit = 0
+        for t, n in occ.items():
+            if PUNCT_RE.match(t):
+                continue
+            ck = _canonical_keys(t)
+            if "-" in t:
+                mem = [_canonical_keys(m.strip()) for m in t.split("-")]
+                if any(kk in shards.get(kk[0], {})
+                       for mk in mem for kk in mk):
+                    strict_hit += n
+                    continue
+            if any(kk in shards.get(kk[0], {}) for kk in ck):
+                strict_hit += n
+        spct = 100 * strict_hit / word_occ if word_occ else 0.0
         dcs = WORK_OF_SITE_ID.get(wid, "-")
         base = ROUND1_PCT.get(wid)
         delta = f" (+{pct - base:.1f})" if base is not None and pct >= base \
             else (f" ({pct - base:+.1f})" if base is not None else "")
-        lines.append(f"{wid}|{dcs}|{pct:.1f}%|{hit}/{word_occ}")
+        lines.append(f"{wid}|{dcs}|{pct:.1f}|{spct:.1f}|{hit}/{word_occ}")
         flag = "" if pct >= 90 or base is None else "  <-- round-2 match"
         print(f"  {wid:26s} (DCS: {dcs:24s}) {pct:6.2f}%{delta:8s} "
-              f"({hit}/{word_occ} word occurrences){flag}")
+              f"strict={spct:5.1f}% ({hit}/{word_occ} word occurrences)"
+              f"{flag}")
     return lines
 
 
@@ -739,16 +877,20 @@ def spot_check(index, shards, n=15):
 
 
 def main() -> None:
+    # site tokens FIRST: they gate span-candidate emission (lotus-keys fix)
+    toks_by_work = collect_tokens()
     shards = load_existing()
     before = {l: set(b) for l, b in shards.items()}
-    n_new, per_work, key_origin = merge(shards)
+    n_new, per_work, key_origin = merge(shards, site_key_allowlist(
+        toks_by_work))
     emit_shards(shards)
-    toks_by_work, index = emit_surface_index(shards)
+    toks_by_work, index = emit_surface_index(shards,
+                                             toks_by_work=toks_by_work)
     emit_surface_slices(index, toks_by_work)
     lines = validate(toks_by_work, index, shards)
     with open(os.path.join(HERE, "qa-report", "morph-dcs2-resolution.csv"),
               "w", encoding="utf-8") as fh:
-        fh.write("work|dcs_dir|pct|hits\n")
+        fh.write("work|dcs_dir|pct|strict_pct|hits\n")
         fh.write("\n".join(lines) + "\n")
     spot_check(index, shards)
     spot_check_new(index, key_origin, toks_by_work, shards)
@@ -759,7 +901,7 @@ def main() -> None:
     import contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        merge(probe)
+        merge(probe, site_key_allowlist(toks_by_work))
     out = buf.getvalue()
     m = re.search(r"new_keys=(\d+)", out)
     assert m and m.group(1) == "0", "NOT idempotent: second pass adds keys!"
