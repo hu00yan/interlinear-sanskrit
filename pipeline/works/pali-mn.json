@@ -1,0 +1,28 @@
+{
+  "workId": "pali-mn",
+  "adapter": "pali_nikaya",
+  "title": "Majjhima Nikāya (152 suttas)",
+  "lang": "pi",
+  "legacy_builder": "pipeline/build_pali_nikaya.py",
+  "fetch": {
+    "enabled": true,
+    "sources": [
+      { "name": "bilara-root", "kind": "tree", "require_checksum": true,
+        "base": ".cache-bilara/bilara-data",
+        "glob": "root/pli/ms/sutta/mn/*.json", "expect_files": 152 },
+      { "name": "bilara-trans", "kind": "tree", "require_checksum": true,
+        "base": ".cache-bilara/bilara-data",
+        "glob": "translation/en/sujato/sutta/mn/*.json", "expect_files": 152 }
+    ]
+  },
+  "normalize": { "enabled": true },
+  "tokenize": { "enabled": true },
+  "align": { "enabled": true },
+  "analyze": { "enabled": false, "reason": "morph lane PENDING-MIGRATION (build_morph_dcs.py owned by another workstream)" },
+  "gloss": { "enabled": false, "reason": "PENDING-MIGRATION (build_glosses.py)" },
+  "emit": { "enabled": true },
+  "qa": {
+    "enabled": true,
+    "expected": { "units": 221, "en_coverage_pct": 100.0 }
+  }
+}

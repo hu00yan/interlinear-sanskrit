@@ -1,0 +1,29 @@
+{
+  "workId": "bhagavata",
+  "adapter": "bhagavata",
+  "title": "Bhāgavatapurāṇa (12 skandhas)",
+  "lang": "sa",
+  "legacy_builder": ".bhg-work/build_bhagavata.py",
+  "fetch": {
+    "enabled": true,
+    "sources": [
+      { "name": "gretil-bhp", "kind": "file", "require_checksum": true,
+        "path": ".cache-corpus/purana/sa_bhAgavatapurANa.txt" }
+    ]
+  },
+  "normalize": { "enabled": true },
+  "tokenize": { "enabled": true },
+  "align": { "enabled": false, "reason": "single-language surface-form text; no translation lane yet" },
+  "analyze": { "enabled": false, "reason": "morph lane PENDING-MIGRATION (build_morph_dcs.py owned by another workstream)" },
+  "gloss": { "enabled": false, "reason": "PENDING-MIGRATION (build_glosses.py)" },
+  "emit": { "enabled": true },
+  "qa": {
+    "enabled": true,
+    "expected": {
+      "units_per_skandha": {
+        "1": 813, "2": 391, "3": 1391, "4": 1446, "5": 662, "6": 851,
+        "7": 749, "8": 932, "9": 964, "10": 3936, "11": 1366, "12": 565
+      }
+    }
+  }
+}
