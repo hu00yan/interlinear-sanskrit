@@ -12,7 +12,7 @@ import { compactFeatsEl, compactTagNode, lemmaDualEl,
   parseDcsFeats } from "./feats";
 import { groupHeadEl } from "./group-ui";
 import {
-  GLOSS_MAX_CHARS, MAX_VISIBLE_GROUPS, buildRankedGroups,
+  GLOSS_MAX_CHARS, buildRankedGroups,
   clipGloss, glossIdentity, rankedParses, type ParseGroup,
 } from "./group";
 import { attachMwGloss, compoundBlock, firstCompound, membersOf,
@@ -37,6 +37,11 @@ const el = (tag: string, cls?: string, text?: string): El => {
   if (text !== undefined) e.textContent = text; // never innerHTML
   return e;
 };
+
+/** Collapsed parse-column density: ONE best group-row per token — the
+ *  greek-reader canonical (its fillParseCol renders a single best card +
+ *  "+N" chip). Further readings live behind the chip / word panel. */
+const COLLAPSED_ROWS = 1;
 
 /** Language tag of the most recently rendered view ("pi" for Pali).
  *  Set per renderUnits call; consulted by primaryText so Pali words in
@@ -316,10 +321,15 @@ function parseCards(word: string, ctx: RenderCtx): El {
 /* ---------------- ranked (lemma × POS-class) groups ----------------
  * kim/ka disaster fix: shard arrays accumulate EVERY corpus occurrence's
  * feature combo, so high-frequency forms rendered paradigm walls. The
- * display now GROUPS by (lemma, POS-class) — one row per group, collapsed
- * view capped at MAX_VISIBLE_GROUPS rows — ranks indeclinable readings and
+ * display now GROUPS by (lemma, POS-class), ranks indeclinable readings and
  * exact surface-form lemmas first, demotes proper-name homographs, and
- * clips MW essay glosses to their first sentence. */
+ * clips MW essay glosses to their first sentence.
+ *
+ * Presentation density converged to greek-reader (śatakatraya pile-up fix):
+ * the COLLAPSED column shows exactly ONE best-ranked group-row (+ 「另有 N 解」
+ * chip when further groups exist); samāsa blocks render only on demand —
+ * in the expanded column or the word panel — never stacked under every
+ * token. Full detail stays one click away (chip / word click). */
 
 /** Sync gloss text for ranking priors from the loaded ctx.gloss map. */
 function groupOpts(ctx: RenderCtx, word?: string): {
@@ -432,16 +442,16 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     return;
   }
 
-  // GROUP by (lemma, POS-class) and rank with priors (kim/ka fix): the
-  // collapsed column shows at most MAX_VISIBLE_GROUPS group-rows; expansion
-  // shows every group. Never a raw paradigm enumeration again.
+  // GROUP by (lemma, POS-class) and rank with priors (kim/ka fix). Collapsed
+  // density = greek-reader: ONE best group-row + chip; expansion (chip click
+  // / word click / key E) reveals every group. Never a raw paradigm wall.
   const groups = buildRankedGroups(parses, groupOpts(ctx, word));
   if (!groups.length) {
     appendDeepEntry(col, word);
     return;
   }
   const expanded = expandedForms.has(key) && groups.length > 1;
-  const visible = expanded ? groups : groups.slice(0, MAX_VISIBLE_GROUPS);
+  const visible = expanded ? groups : groups.slice(0, COLLAPSED_ROWS);
   const painted: Array<{ row: El; lemma: string }> = [];
   for (const g of visible) {
     const row = groupRow(g);
@@ -449,16 +459,20 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     painted.push({ row, lemma: g.lemma });
   }
   paintGroupGlosses(painted);
-  if (!expanded && groups.length > MAX_VISIBLE_GROUPS) {
+  if (!expanded && groups.length > COLLAPSED_ROWS) {
     col.appendChild(expandChip(
       word,
-      groups.length - MAX_VISIBLE_GROUPS,
+      groups.length - COLLAPSED_ROWS,
       groups.length,
       ctx,
     ));
   }
-  const comp = compoundFor(word, ctx);
-  if (comp) col.appendChild(comp);
+  // samāsa block: on-demand detail only (greek parity) — never stacked
+  // under every token in the collapsed reading view.
+  if (expanded) {
+    const comp = compoundFor(word, ctx);
+    if (comp) col.appendChild(comp);
+  }
   appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 

@@ -259,16 +259,71 @@ async function surfaceKeyIn(
   return letters?.[form] ?? null;
 }
 
-async function surfaceKey(form: string, scope?: string): Promise<string | null> {
-  if (!/[\u0900-\u097f]/.test(form)) return stripAccents(form);
+/** Corpus-token resolution: by-work slice when present, else letter
+ *  slices — a scoped miss is FINAL here (the by-work slice is
+ *  authoritative for that work's own tokens). */
+async function scopedSlice(scope?: string): Promise<SurfaceSlice | null> {
+  return scope === undefined
+    ? Promise.resolve(null)
+    : fetchJSON<SurfaceSlice | null>(
+        `data/morph/_surface/by-work/${scope}.json`,
+      ).catch(() => null);
+}
+
+/**
+ * Resolution for a compound MEMBER form (not a work token): consult the
+ * scoped slice first but treat its miss as non-final, falling back to the
+ * corpus-wide letter slices — heads like मूर्तये are inflected word forms
+ * the work's token list never contains.
+ */
+async function memberSurfaceKey(
+  form: string,
+  scoped: Promise<SurfaceSlice | null>,
+): Promise<string | null> {
+  const slice = await scoped;
+  if (slice) {
+    const k = slice[form];
+    if (k) return k;
+  }
+  const name = devSliceName(form);
+  if (!name) return null;
+  const letters = await fetchJSON<SurfaceSlice | null>(
+    `data/morph/_surface/${name}.json`,
+  ).catch(() => null);
+  return letters?.[form] ?? null;
+}
+
+/**
+ * Shard-key candidates for one surface form, best-first.
+ *
+ * Plain tokens resolve exactly as before (scoped by-work slice, else
+ * corpus-wide letter slices). Hyphenated compound display tokens ("X-Y-Z")
+ * additionally yield their LAST member's key FIRST: the samāsa head carries
+ * the compound's inflection, so its analysis is the reading a reader needs
+ * — the first member's analyses (the old single resolution) remain as
+ * fallback. Callers apply the same honesty gate (surfaceKeyTrusted + a
+ * non-empty shard entry) to every candidate in order.
+ */
+async function surfaceKeyCandidates(
+  form: string,
+  scope?: string,
+): Promise<string[]> {
+  if (!/[\u0900-\u097f]/.test(form)) return [stripAccents(form)];
   // fetchJSON dedupes concurrent calls for the same path and caches the
   // promise in memory, so per-form calls here cost one network fetch total.
-  const scoped = scope !== undefined
-    ? fetchJSON<SurfaceSlice | null>(
-        `data/morph/_surface/by-work/${scope}.json`,
-      ).catch(() => null)
-    : Promise.resolve(null);
-  return surfaceKeyIn(form, scoped);
+  const scoped = scopedSlice(scope);
+  const whole = await surfaceKeyIn(form, scoped);
+  if (form.includes("-")) {
+    const members = form.split("-").filter(Boolean);
+    const head = members[members.length - 1];
+    if (head && head !== form) {
+      const headKey = await memberSurfaceKey(head, scoped);
+      if (headKey && headKey !== whole) {
+        return [headKey, ...(whole ? [whole] : [])];
+      }
+    }
+  }
+  return whole ? [whole] : [];
 }
 
 function isCombining(c: string): boolean {
@@ -354,16 +409,24 @@ export async function loadMorph(
   }
   const out = new Map<string, Parse[]>();
   for (const form of uniq) {
-    const key = await surfaceKey(form, scope);
-    if (!key || !surfaceKeyTrusted(form, key)) continue;
-    const l = key[0];
-    if (!l) continue;
-    const shard = await fetchJSON<Record<string, Parse[]> | null>(
-      `data/morph/${l}.json`,
-    ).catch(() => null);
-    // dedupe at COLLECTION time: identical (lemma, abbr-feats, gloss)
-    // triplets inside one shard array never enter the morph map
-    if (shard?.[key]) out.set(form, dedupeParses(shard[key]));
+    // candidates: compound-head key first (hyphenated tokens), then the
+    // form's own resolution. First candidate that passes the honesty gate
+    // AND has a non-empty shard entry wins — a miss stays an honest miss.
+    const candidates = await surfaceKeyCandidates(form, scope);
+    for (const key of candidates) {
+      if (!key || !surfaceKeyTrusted(form, key)) continue;
+      const l = key[0];
+      if (!l) continue;
+      const shard = await fetchJSON<Record<string, Parse[]> | null>(
+        `data/morph/${l}.json`,
+      ).catch(() => null);
+      // dedupe at COLLECTION time: identical (lemma, abbr-feats, gloss)
+      // triplets inside one shard array never enter the morph map
+      if (shard?.[key]?.length) {
+        out.set(form, dedupeParses(shard[key]));
+        break;
+      }
+    }
   }
   return out;
 }

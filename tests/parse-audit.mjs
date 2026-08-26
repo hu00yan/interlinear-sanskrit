@@ -3,6 +3,10 @@
 //
 // Pages: BhG 1–3, Lotus part01 ch1–2 range, Meghadūta sarga 1,
 // Raghuvamśa opening, Rāmāyaṇa bāla sample, Dhammapada 1–20 (Pali),
+// śatakatraya + vetalapancavimsati + kamasutra + lalitavistara +
+// Aṅguttara (random nipāta) + Kena Upaniṣad (2026-08 śatakatraya
+// pile-up fix — hyphen-compound corpus pages join the sample so the
+// always-on-card stacking regression can never recur unseen),
 // plus home lookup-box queries {kim, ka, ca, vā, rāma, deva}.
 //
 // HARD metrics:
@@ -41,6 +45,20 @@ const PAGES = [
     settleRef: "1.5", pali: false },
   { name: "Dhammapada 1–20", hash: "#/pali/pali-dhammapada",
     work: "pali-dhammapada", settleRef: null, pali: true },
+  // --- enlarged sample (śatakatraya pile-up fix): hyphen-compound +
+  //     upanishad + pali-nikaya corpus pages ---
+  { name: "Śatakatraya opening", hash: "#/satakatraya",
+    work: "satakatraya", settleRef: "1.1", pali: false },
+  { name: "Vetālapañcaviṃśatikā opening", hash: "#/vetalapancavimsati",
+    work: "vetalapancavimsati", settleRef: "0.1", pali: false },
+  { name: "Kāmasūtra opening", hash: "#/kamasutra",
+    work: "kamasutra", settleRef: "1.1.1", pali: false },
+  { name: "Lalitavistara opening", hash: "#/lalitavistara",
+    work: "lalitavistara", settleRef: "0.1", pali: false },
+  { name: "Aṅguttara sample (random nipāta)", hash: "#/pali/pali-anguttara-nikaya",
+    work: "pali-anguttara-nikaya", settleRef: null, pali: true },
+  { name: "Kena Upaniṣad", hash: "#/kenopanishad",
+    work: "kenopanishad", settleRef: null, pali: false },
 ];
 
 const LOOKUPS = [
