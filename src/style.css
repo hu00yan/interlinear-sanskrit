@@ -466,6 +466,32 @@ button.dev-active { font-weight: 600; }
 .pcard { margin-bottom: 4px; }
 .pcard:last-child { margin-bottom: 0; }
 
+/* compact analysis card (R1/R2): lemma + abbreviated inflection share one
+   row; the MW gloss line beneath is capped at two lines (full text lives in
+   the word panel). Long lemmas/glosses may wrap but never push width. */
+.pcard-compact .cand-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.pcard-compact .lemma,
+.pcard-compact .feats,
+.gloss.mw-gloss {
+  overflow-wrap: anywhere;
+}
+.pcard-compact .gloss.mw-gloss,
+.cand-row .gloss.mw-gloss {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* expanded-detail extras (dialects / stem types / compound TYPE): muted */
+.feat-extras { opacity: 0.75; font-size: 0.66rem; }
+.feat-tag.feat-abbr { white-space: nowrap; }
+
 /* collapsed extra candidates */
 .more-chip {
   font-size: 0.72rem;
@@ -611,6 +637,20 @@ body.sidebar-view #app {
   font-size: 1rem;
   font-weight: 600;
 }
+/* F1 close control: ✕ at the head's right edge, hides the sidebar entirely */
+.tr-sidebar-head .sb-close {
+  margin-left: auto;
+  flex: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: var(--radius-s);
+}
+.tr-sidebar-head .sb-close:hover { color: var(--accent); }
 .tr-sidebar-credit {
   margin: 0;
   font-size: 0.68rem;
@@ -620,6 +660,7 @@ body.sidebar-view #app {
   white-space: nowrap;
 }
 .tr-sidebar-body { padding: 8px 16px 24px; }
+.tr-sidebar-body .tr-text { overflow-wrap: anywhere; }
 .sb-row { padding: 7px 4px; border-radius: var(--radius-s); }
 .sb-row + .sb-row { border-top: 1px dotted color-mix(in srgb, var(--border) 45%, transparent); }
 .sb-row.current { background: var(--surface-2); }

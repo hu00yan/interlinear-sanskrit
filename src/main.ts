@@ -23,7 +23,7 @@ import {
   continueReadingSection, getRecent, saveRecent, setUnitContext,
 } from "./bookmarks";
 import { setupTranslationLayer, type TlLayerHandle } from "./zh-layer";
-import { setupSidebar, type SidebarHandle } from "./sidebar";
+import { setupSidebar, teardownSidebar, type SidebarHandle } from "./sidebar";
 
 const app = document.getElementById("app") as HTMLElement;
 
@@ -65,6 +65,9 @@ type Section = "sa" | "pi";
 
 function go(hash: string): void {
   hidePanel();
+  // F1: a 侧栏 left open by the previous route dies here — its DOM,
+  // listeners and body squeeze never leak onto the next route (incl. home).
+  teardownSidebar();
   const route = hash.replace(/^#\/?/, "");
   if (route === "about") return renderAbout(app);
   setUnitContext(null, null); // star/copy buttons only make sense in a reader
@@ -437,8 +440,7 @@ async function loadNextPage(state: ReaderState): Promise<void> {
       : state.work.id;
     const freshCtx = await prepare(batch, scope);
     mergeCtx(state.ctx, freshCtx.morph, freshCtx.gloss);
-    // Morph coverage currently spans the Bhagavadgītā analysis only; other
-    // works would render mostly silent "—" columns. Say so once, explicitly,
+    // Honesty gate: only exact surface-key analyses render. Say so ONCE
     // whenever fewer than half of this page's distinct forms have analyses.
     if (!state.morphNoteDone) {
       state.morphNoteDone = true;
@@ -449,7 +451,7 @@ async function loadNextPage(state: ReaderState): Promise<void> {
         state.body.appendChild(el(
           "div",
           "morph-empty-note",
-          "本卷语法解析覆盖有限（现有完整解析仅覆盖《薄伽梵歌》，其余卷目陆续补充中），未解析的词以“—”标示。点击任意单词仍可查询词典。",
+          "本卷逐词语法解析覆盖有限：仅当词形在语料库中有精确对应解析时才显示解析卡（不猜测、不类推），未覆盖的词下方留空。点击任意单词仍可查询词典。",
         ));
       }
     }

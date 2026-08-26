@@ -26,7 +26,6 @@ const el = (tag: string, cls?: string, text?: string): El => {
 export type ViewMode = "interline" | "sidebar";
 
 const modeKey = (id: string): string => `reader-view:${id}`;
-const widthKey = (id: string): string => `sidebar-w:${id}`;
 
 /** Per-work stored view mode; null when the reader never chose one. */
 function storedMode(workId: string): ViewMode | null {
@@ -57,7 +56,15 @@ export interface SidebarHandle {
   setMode(m: ViewMode): void;
   /** Re-paint after freshly rendered pages (call like tl.sync()). */
   refresh(): Promise<void>;
+  /** Full teardown for route changes: removes the sidebar DOM, listeners
+   *  and body state; the remembered width dies with this work session. */
+  destroy(): void;
 }
+
+/** The ONE active sidebar instance's teardown (main.ts calls it before any
+ *  route render so a 侧栏 left open on work A can never leak onto work B,
+ *  home, or about). */
+let activeTeardown: (() => void) | null = null;
 
 export function setupSidebar(
   work: CatalogWork,
@@ -118,14 +125,17 @@ export function setupSidebar(
   let creditEl: El | null = null;
   let divider: El | null = null;
 
+  // Width memory lives in THIS closure only — remembered across
+  // open/close within the same work view (same work session), never
+  // persisted to localStorage, so a later visit starts from the default.
+  let sessionWidth: number | null = null;
+
   function applyWidth(px: number): void {
+    sessionWidth = px;
     document.documentElement.style.setProperty("--sb-w", `${Math.round(px)}px`);
   }
   function savedWidth(): number {
-    try {
-      const v = parseFloat(localStorage.getItem(widthKey(work.id)) ?? "");
-      if (Number.isFinite(v)) return clampWidth(v);
-    } catch { /* private mode */ }
+    if (sessionWidth !== null) return clampWidth(sessionWidth);
     return Math.min(400, window.innerWidth * 0.38);
   }
 
@@ -137,17 +147,11 @@ export function setupSidebar(
       document.body.classList.add("sb-resizing");
       const move = (ev: PointerEvent): void =>
         applyWidth(clampWidth(window.innerWidth - ev.clientX));
-      const up = (ev: PointerEvent): void => {
+      const up = (): void => {
         div.classList.remove("dragging");
         document.body.classList.remove("sb-resizing");
         div.removeEventListener("pointermove", move);
         div.removeEventListener("pointerup", up);
-        try {
-          localStorage.setItem(
-            widthKey(work.id),
-            String(Math.round(clampWidth(window.innerWidth - ev.clientX))),
-          );
-        } catch { /* best-effort */ }
       };
       div.addEventListener("pointermove", move);
       div.addEventListener("pointerup", up);
@@ -162,6 +166,14 @@ export function setupSidebar(
     head.appendChild(el("h2", undefined, "译文"));
     creditEl = el("p", "tr-sidebar-credit");
     head.appendChild(creditEl);
+    // F1: explicit close control — hides the sidebar entirely (switches
+    // back to 行间); reopening within this work view keeps the width.
+    const close = el("button", "close-btn sb-close", "✕") as HTMLButtonElement;
+    close.type = "button";
+    close.setAttribute("aria-label", "Close translation sidebar");
+    close.title = "Close sidebar";
+    close.addEventListener("click", () => void apply("interline"));
+    head.appendChild(close);
     aside.appendChild(head);
     sbBody = el("div", "tr-sidebar-body");
     aside.appendChild(sbBody);
@@ -286,9 +298,10 @@ export function setupSidebar(
   const scheduleSync = (): void => {
     if (!rafPending) rafPending = requestAnimationFrame(syncScroll);
   };
-  window.addEventListener("scroll", () => {
+  const onWinScroll = (): void => {
     if (mode === "sidebar") scheduleSync();
-  }, { passive: true });
+  };
+  window.addEventListener("scroll", onWinScroll, { passive: true });
 
   /* ---------------- mode switching ---------------- */
 
@@ -299,15 +312,13 @@ export function setupSidebar(
     if (mode === "sidebar") {
       opts.tl?.setSuppressed(true); // no double rendering of the stream
       await paint();
+      aside?.classList.remove("hidden");
+      divider?.classList.remove("hidden");
+      scheduleSync();
     } else {
       opts.tl?.setSuppressed(false);
       aside?.classList.add("hidden"); // kept in DOM, cheap to re-enter
       divider?.classList.add("hidden");
-    }
-    if (mode === "sidebar") {
-      aside?.classList.remove("hidden");
-      divider?.classList.remove("hidden");
-      scheduleSync();
     }
     try {
       localStorage.setItem(modeKey(work.id), mode);
@@ -318,16 +329,34 @@ export function setupSidebar(
   btnSidebar.addEventListener("click", () => void apply("sidebar"));
 
   // follow the 英译/汉译 toggle while open
-  window.addEventListener("tl-mode", ((e: CustomEvent<string>) => {
+  const onTlMode = ((e: CustomEvent<string>) => {
     if (e.detail === "en" || e.detail === "zh") {
       layer = e.detail;
       if (mode === "sidebar") void paint();
     }
-  }) as EventListener);
+  }) as EventListener;
+  window.addEventListener("tl-mode", onTlMode);
 
   // restore persisted/default mode lazily but synchronously enough for the
   // first paint (apply() itself is idempotent)
   void apply(mode);
+
+  /** Route-change teardown (F1): nothing of this sidebar may outlive the
+   *  work view — DOM, listeners and body squeeze all go; the remembered
+   *  width dies with this closure. */
+  function destroy(): void {
+    if (activeTeardown === destroy) activeTeardown = null;
+    window.removeEventListener("scroll", onWinScroll);
+    window.removeEventListener("tl-mode", onTlMode);
+    aside?.remove();
+    divider?.remove();
+    document.body.classList.remove("sidebar-view", "sb-resizing");
+    aside = null;
+    sbBody = null;
+    divider = null;
+    sessionWidth = null;
+  }
+  activeTeardown = destroy;
 
   return {
     mode: () => mode,
@@ -335,5 +364,13 @@ export function setupSidebar(
     refresh: async () => {
       if (mode === "sidebar") await paint();
     },
+    destroy,
   };
+}
+
+/** Called by the router BEFORE rendering any route: tears down whichever
+ *  work's sidebar is still attached (no-op when none). */
+export function teardownSidebar(): void {
+  activeTeardown?.();
+  activeTeardown = null;
 }
