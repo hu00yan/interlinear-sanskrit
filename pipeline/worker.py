@@ -211,6 +211,22 @@ def main() -> int:
               f"{record['duration_ms']}ms"
               + (f" -> published {len(record.get('published', []))} files"
                  if record.get("published") else ""))
+
+    # corpus-wide home-search gate: after ANY publish, the committed
+    # search index must still cover every catalog work and answer the
+    # dual-script spot queries (stages/90-qa/check_search_index.py)
+    if args.apply:
+        gate = subprocess.run(
+            [sys.executable,
+             os.path.join(HERE, "stages", "90-qa", "check_search_index.py"),
+             "--data-root", args.out_root],
+            cwd=REPO, capture_output=True, text=True)
+        sys.stdout.write(gate.stdout)
+        sys.stderr.write(gate.stderr)
+        if gate.returncode != 0:
+            print("[worker] search-index gate FAILED after publish",
+                  file=sys.stderr)
+            return 1
     return 1 if any_failed else 0
 
 
