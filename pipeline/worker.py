@@ -140,6 +140,29 @@ def main() -> int:
                 failed_at = dirname
                 record["status"] = "failed"
                 break
+            if section == "tokenize":
+                # QA gate: GRETIL ref-marker / apparatus leakage into
+                # units[].words[] must abort the chain before align/gloss
+                # ever see it (fail-loud; see stages/90-qa/check_words_clean.py).
+                chk = subprocess.run(
+                    [sys.executable,
+                     os.path.join(HERE, "stages", "90-qa",
+                                  "check_words_clean.py"),
+                     "--in", artifact, "--max-show", "10"],
+                    cwd=REPO, capture_output=True, text=True)
+                entry["duration_ms"] = int((time.time() - st) * 1000)
+                if chk.returncode != 0:
+                    entry["status"] = "failed"
+                    tail = ([ln for ln in chk.stderr.strip().splitlines()
+                             if ln]
+                            + [ln for ln in chk.stdout.strip().splitlines()
+                               if "VIOLATION" in ln or "FAIL" in ln])
+                    entry["errors"] = tail[-3:] or \
+                        ["dirty tokens in words[]"]
+                    record["stages"].append(entry)
+                    failed_at = dirname
+                    record["status"] = "failed"
+                    break
             if section == "emit":
                 entry["artifacts"] = sorted(
                     os.path.relpath(os.path.join(dp, f), run_dir)
