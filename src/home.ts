@@ -7,8 +7,8 @@
 // compact संस्कृत | पालि toggle next to the title switches between them;
 // each section lists only its own language's works.
 import {
-  catalogLang, isUntranslated, loadCatalog, stripAccents, workRoute,
-  zhNameOf, zhTitleOf,
+  catalogLang, fetchJSON, isUntranslated, loadCatalog, normSa, stripAccents,
+  workRoute, zhNameOf, zhTitleOf,
   type CatalogAuthor, type CatalogWork,
 } from "./api";
 import { wordLookupWidget } from "./lookup";
@@ -115,13 +115,15 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
   );
 
   // ---- prominent search box + header controls ----
-  // Both scripts accepted: IAST transliteration or Devanagari.
-  // (Full-text search integration arrives later; placeholder only.)
+  // Both scripts accepted: IAST transliteration or Devanagari — the same
+  // folded key space (normSa) serves title filtering AND the full-text
+  // sections below ("In translations:" + word index).
   const searchWrap = el("div", "home-search");
   const input = el("input") as HTMLInputElement;
   input.type = "search";
-  input.placeholder = "Search in IAST or Devanagari";
-  input.setAttribute("aria-label", "Filter catalog by author or work");
+  input.placeholder = "Search works & full text (IAST or Devanagari)";
+  input.setAttribute("aria-label",
+    "Filter catalog and search full text by author, work or word");
   input.autocomplete = "off";
   input.spellcheck = false;
   searchWrap.appendChild(input);
@@ -274,6 +276,8 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
       ? `${nAuthors} author${nAuthors === 1 ? "" : "s"} · ` +
         `${nWorks} work${nWorks === 1 ? "" : "s"} matching “${input.value.trim()}”`
       : `${nAuthors} authors · ${nWorks} works`;
+    void updateTextHits(q);
+    void updateSaHits(input.value);
   }
 
   let debounce = 0;
@@ -281,4 +285,233 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
     window.clearTimeout(debounce);
     debounce = window.setTimeout(applyFilter, 60);
   });
+
+  // ---- full-text search over translations (lazy, build-time index) ----
+  // Ported from greek-reader home.ts. Index shape
+  // (pipeline/stages/80-searchindex/build_search_index.py):
+  //   {v:1, w:["bhagavadgita",...], e:[[widIdx,"1.1","snippet"], ...]}
+  // Snippets are pre-normalized through normSa (lowercase, diacritics and
+  // punctuation folded), so the query normalized identically substring-
+  // matches. Loaded ONCE on the first qualifying search (length > 3);
+  // filtering is a plain array scan over ~43k snippets.
+  interface TransIndex {
+    v: number;
+    w: string[];
+    e: Array<[number, string, string]>;
+  }
+  let idxPromise: Promise<TransIndex | null> | null = null;
+  let hitsToken = 0;
+  const hits = el("div", "text-hits");
+  hits.hidden = true;
+  const workById = new Map<string, CatalogWork>();
+  const authorByWork = new Map<string, CatalogAuthor>();
+  loadCatalog().then((catalog) => {
+    for (const a of catalog.authors) {
+      for (const w of a.works) {
+        workById.set(w.id, w);
+        authorByWork.set(w.id, a);
+      }
+    }
+  }).catch(() => {});
+
+  function ensureIndex(): Promise<TransIndex | null> {
+    if (!idxPromise) {
+      idxPromise = fetchJSON<TransIndex>(
+        "data/search-index-trans.json",
+      ).catch(() => null);
+    }
+    return idxPromise;
+  }
+
+  /** Render up to 8 "In translations:" hits below the catalog matches. */
+  async function updateTextHits(q: string): Promise<void> {
+    const nq = normSa(q);
+    if (nq.length <= 3) {
+      hits.hidden = true;
+      hits.replaceChildren();
+      return;
+    }
+    const token = ++hitsToken;
+    const idx = await ensureIndex();
+    if (token !== hitsToken) return; // stale keystroke
+    if (!idx) {
+      app.appendChild(hits);
+      hits.replaceChildren(
+        el("p", "text-hits-note", "Text search unavailable."),
+      );
+      hits.hidden = false;
+      return;
+    }
+    const found: Array<{ wid: string; ref: string; snip: string }> = [];
+    let total = 0;
+    for (const [wi, ref, sn] of idx.e) {
+      const at = sn.indexOf(nq);
+      if (at < 0) continue;
+      total += 1;
+      if (found.length < 8) {
+        const wid = idx.w[wi];
+        if (!workById.has(wid)) continue;
+        found.push({ wid, ref, snip: window_(sn, at, nq.length) });
+      }
+    }
+    hits.replaceChildren();
+    if (!total) {
+      hits.hidden = true;
+      return;
+    }
+    const head = el("h3", "text-hits-head",
+      `In translations: ${total.toLocaleString()} passage` +
+      `${total === 1 ? "" : "s"} containing “${input.value.trim()}”`);
+    head.title = "Full-text matches in translation corpus";
+    hits.appendChild(head);
+    const list = el("div", "text-hits-list");
+    for (const f of found) {
+      const w = workById.get(f.wid)!;
+      const a = el("a", "text-hit") as HTMLAnchorElement;
+      a.href = workRoute(w, authorByWork.get(f.wid));
+      a.appendChild(el("span", "hit-title", w.title));
+      a.appendChild(el("span", "hit-ref", ` ${f.ref}`));
+      a.appendChild(snippetEl(f.snip, nq));
+      list.appendChild(a);
+    }
+    hits.appendChild(list);
+    app.appendChild(hits); // force bottom-most position, below work matches
+    hits.hidden = false;
+  }
+  /** ±60-char context window around the first match (greek parity). */
+  function window_(sn: string, at: number, len: number): string {
+    const start = Math.max(0, at - 55);
+    const end = Math.min(sn.length, at + len + 65);
+    const body = sn.slice(start, end);
+    return (start > 0 ? "…" : "") + body + (end < sn.length ? "…" : "");
+  }
+  /** Windowed snippet with the matched span highlighted via <mark>
+   *  (textContent-built nodes only — never innerHTML). */
+  function snippetEl(win: string, nq: string): HTMLElement {
+    const span = el("span", "hit-snippet");
+    const at = win.indexOf(nq);
+    if (at < 0) {
+      span.textContent = win;
+      return span;
+    }
+    span.append(
+      document.createTextNode(win.slice(0, at)),
+      el("mark", undefined, win.slice(at, at + nq.length)),
+      document.createTextNode(win.slice(at + nq.length)),
+    );
+    return span;
+  }
+
+  // ---- Sanskrit/Pali WORK search (build-time inverted index, sharded) --
+  // Greek-reader's grc index ported to two scripts. Index
+  // (pipeline/stages/80-searchindex/build_search_index.py):
+  //   _meta.json {v:1, letters:[..], works:["bhagavadgita",...]}
+  //   <letter>.json { "<norm>": [totalN, [[widIdx,"ref"]...]] }
+  // Keys are normSa-folded ascii — Devanagari AND roman queries land on
+  // the same key ("राम" ≡ "rāma" ≡ "rama"), Pali included. Only ONE
+  // letter shard (the query's initial) is fetched, lazily, once; probes
+  // for final-visarga/anusvara variants mirror greek's ±final-sigma trick
+  // (रामः → राम, रामम् → राम and back).
+  interface SaMeta {
+    v: number;
+    letters: string[];
+    works: string[];
+  }
+  type SaEntry = [number, Array<[number, string]>];
+  type SaShard = Record<string, SaEntry>;
+  interface SaIndex {
+    meta: SaMeta;
+    shards: Map<string, Promise<SaShard | null>>;
+  }
+  let saIdxPromise: Promise<SaIndex | null> | null = null;
+  let saToken = 0;
+  const saHits = el("div", "text-hits sa-hits");
+  saHits.hidden = true;
+
+  function ensureSaIndex(): Promise<SaIndex | null> {
+    if (!saIdxPromise) {
+      saIdxPromise = fetchJSON<SaMeta>("data/search-index-sa/_meta.json")
+        .then((meta) => ({
+          meta,
+          shards: new Map<string, Promise<SaShard | null>>(),
+        }))
+        .catch(() => null);
+    }
+    return saIdxPromise;
+  }
+
+  function shardFor(idx: SaIndex, letter: string):
+    Promise<SaShard | null> {
+    let p = idx.shards.get(letter);
+    if (!p) {
+      p = fetchJSON<SaShard>(`data/search-index-sa/${letter}.json`)
+        .catch(() => null);
+      idx.shards.set(letter, p);
+    }
+    return p;
+  }
+
+  async function updateSaHits(rawQ: string): Promise<void> {
+    const k = normSa(rawQ.trim());
+    if (k.length < 2 || !/^[a-z]/.test(k)) {
+      saHits.hidden = true;
+      saHits.replaceChildren();
+      return;
+    }
+    const token = ++saToken;
+    const idx = await ensureSaIndex();
+    if (token !== saToken) return; // stale keystroke
+    if (!idx) {
+      app.appendChild(saHits);
+      saHits.replaceChildren(
+        el("p", "text-hits-note", "Sanskrit text search unavailable."),
+      );
+      saHits.hidden = false;
+      return;
+    }
+    const shard = await shardFor(idx, k[0]);
+    if (token !== saToken) return;
+    saHits.replaceChildren();
+    app.appendChild(saHits); // keep below the translation hits
+    // exact fold first, then final-visarga/anusvara variants (greek's
+    // ±σ behaviour): rāmaḥ→rāma, rāmam→rāma, and reverse rāma→rāmaḥ/rāmam
+    let hit: SaEntry | undefined = shard?.[k];
+    if (!hit && shard) {
+      const cands = /[mh]$/.test(k) ? [k.slice(0, -1)] : [];
+      cands.push(`${k}h`, `${k}m`);
+      for (const c of cands) {
+        const h = shard[c];
+        if (h && h[1].length) {
+          hit = h;
+          break;
+        }
+      }
+    }
+    if (!hit || !hit[1].length) {
+      saHits.hidden = true;
+      return;
+    }
+    const shown = Math.min(8, hit[1].length);
+    const head = el("h3", "text-hits-head",
+      `In Sanskrit & Pali texts: ${hit[1].length.toLocaleString()} work` +
+      `${hit[1].length === 1 ? "" : "s"} containing “${rawQ.trim()}”`);
+    head.title =
+      `≈${hit[0].toLocaleString()} total occurrences` +
+      (shard && !shard[k] ? " (matched a sandhi variant)" : "");
+    saHits.appendChild(head);
+    const list = el("div", "text-hits-list");
+    for (const [widIdx, ref] of hit[1].slice(0, shown)) {
+      const wid = idx.meta.works[widIdx];
+      const w = workById.get(wid);
+      if (!w) continue;
+      const a = el("a", "text-hit sa-hit") as HTMLAnchorElement;
+      a.href = workRoute(w, authorByWork.get(wid));
+      a.appendChild(el("span", "hit-title", w.title));
+      a.appendChild(el("span", "hit-ref",
+        ref ? ` — first seen at ${ref}` : ""));
+      list.appendChild(a);
+    }
+    saHits.appendChild(list);
+    saHits.hidden = false;
+  }
 }

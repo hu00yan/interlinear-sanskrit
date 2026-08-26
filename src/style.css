@@ -1572,6 +1572,13 @@ a.text-hit:focus-visible {
   display: block;
   overflow-wrap: anywhere;
 }
+/* matched span inside a translation snippet */
+.text-hits mark {
+  background: var(--accent-soft);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
 
 /* ---- repo banner (about, top) ---- */
 .repo-banner {

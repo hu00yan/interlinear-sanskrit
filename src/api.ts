@@ -9,7 +9,7 @@
 //                                          "units":[{"ref","words"}]}
 import { fromBeta, toBeta } from "./betacode";
 import { parseDcsFeats, posAbbr } from "./feats";
-import { surfaceKeyTrusted } from "./translit";
+import { devToIast, surfaceKeyTrusted } from "./translit";
 
 export interface CatalogWork {
   id: string;
@@ -166,6 +166,19 @@ export function stripAccents(word: string): string {
     .filter((c) => !isCombining(c))
     .join("");
   return s.replace(/ς/g, "σ");
+}
+
+/**
+ * Folded ascii search key for home full-text search — the client twin of
+ * pipeline/stages/80-searchindex/build_search_index.py norm_sa(): input in
+ * EITHER script (Devanagari or IAST/Pali roman) folds to the same key:
+ * Devanagari -> IAST, lowercase, NFD, drop combining marks, keep [a-z0-9].
+ * "राम", "rāma" and sloppy "rama" all fold to "rama"; greek-reader's
+ * stripAccents does the same job for accents/final sigma.
+ */
+export function normSa(q: string): string {
+  const iast = /[\u0900-\u097f]/.test(q) ? devToIast(q) : q;
+  return iast.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
 }
 
 // surface Devanagari token -> slp1 shard key, via LAZY SLICES (built by
