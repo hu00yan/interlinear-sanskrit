@@ -8,6 +8,7 @@
 //   data/texts/<tlg>/<work>-partNN.json   {"id","author","title","kind",
 //                                          "units":[{"ref","words"}]}
 import { fromBeta, toBeta } from "./betacode";
+import { parseDcsFeats, posAbbr } from "./feats";
 import { surfaceKeyTrusted } from "./translit";
 
 export interface CatalogWork {
@@ -347,7 +348,47 @@ export async function loadMorph(
     const shard = await fetchJSON<Record<string, Parse[]> | null>(
       `data/morph/${l}.json`,
     ).catch(() => null);
-    if (shard?.[key]) out.set(form, shard[key]);
+    // dedupe at COLLECTION time: identical (lemma, abbr-feats, gloss)
+    // triplets inside one shard array never enter the morph map
+    if (shard?.[key]) out.set(form, dedupeParses(shard[key]));
+  }
+  return out;
+}
+
+/* ---------------- analysis de-duplication ----------------
+ * The DCS pipeline ships one analysis ROW PER CORPUS OCCURRENCE, so a
+ * single shard entry often contains byte-identical analyses — and the
+ * reader rendered each as its own stacked line ("rāma m. sg. nom." twice),
+ * which reads as broken repetition. Identity here is the DISPLAYED triplet:
+ * lemma + ABBREVIATED feature string + gloss. Keying on the compact-abbr
+ * projection (feats.ts) also collapses raw tag orderings that display
+ * identically ("पुं;2;एक" ≡ "पुं;एक;2").
+ *
+ * Collection point (merge-spec step 3): surface resolution picks exactly
+ * ONE shard key per form — the by-work slice when present, else the
+ * corpus-wide letter slices — so the two paths never concatenate and
+ * duplicates can only arrive INSIDE one shard array. Dropping them here,
+ * while candidates are collected into the morph map, keeps every consumer
+ * (reader columns, word panel, lookup box, lexicon drawer) clean without
+ * per-render work. First occurrence wins, so ranking order is unchanged. */
+
+/** Displayed identity of one analysis: the dedupe triplet key. */
+export function parseDedupeKey(p: Parse): string {
+  const abbr = parseDcsFeats(p.f ?? "").main.map((t) => t.ab).join(" ");
+  return `${p.l ?? ""}\u0000${posAbbr(p.p)}\u0000${abbr}\u0000${p.g ?? ""}`;
+}
+
+/** Drop analyses whose (lemma, abbreviated features, gloss) triplet was
+ *  already seen; order-preserving (first occurrence kept). */
+export function dedupeParses(parses: Parse[]): Parse[] {
+  const seen = new Set<string>();
+  const out: Parse[] = [];
+  for (const p of parses) {
+    const k = parseDedupeKey(p);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(p);
+    }
   }
   return out;
 }

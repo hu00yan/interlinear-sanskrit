@@ -481,6 +481,15 @@ button.dev-active { font-weight: 600; }
 .gloss.mw-gloss {
   overflow-wrap: anywhere;
 }
+/* merged same-token analyses (one compact row): primary candidate first,
+   genuine alternates joined inline with a muted 「·」 separator; each
+   segment ends with its own async MW gloss (R3). The head drops to block
+   flow and every piece renders inline so the whole row wraps like text. */
+.pcard-merged .cand-head { display: block; }
+.pcard-merged .cand-seg { display: inline; min-width: 0; }
+.pcard-merged .cand-seg .feats { display: inline; }
+.seg-sep { color: var(--muted); font-weight: 700; padding: 0 1px; }
+.gloss.seg-gloss { overflow-wrap: anywhere; }
 .pcard-compact .gloss.mw-gloss,
 .cand-row .gloss.mw-gloss {
   display: -webkit-box;

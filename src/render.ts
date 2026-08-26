@@ -1,6 +1,6 @@
 // Shared interlinear rendering: Greek units (verse lines or prose chunks)
 // with per-word parse cards, controls bar, and the click-for-details panel.
-import { fetchJSON, loadCatalog, loadGloss, loadMorph, stripAccents, zhNameOf, zhTitleOf, type Catalog, type Gloss, type Parse, type Unit } from "./api";
+import { dedupeParses, fetchJSON, loadCatalog, loadGloss, loadMorph, stripAccents, zhNameOf, zhTitleOf, type Catalog, type Gloss, type Parse, type Unit } from "./api";
 import { applyClasses, attachChip, isKnown, markKnown, toolbarControls, unmarkKnown } from "./vocab";
 import { copyLinkButtonFor, openStarPanel, starButtonFor } from "./bookmarks";
 import { openLexicon, lexiconButton } from "./lexicon";
@@ -365,8 +365,11 @@ function candidateRow(
 function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
   col.replaceChildren();
   const key = stripAccents(word);
-  const parses = ctx.morph.get(key);
-  if (!parses || parses.length === 0) {
+  // dedupe BEFORE rendering the candidate list (idempotent: loadMorph
+  // already drops identical triplets at collection time; live/paste-built
+  // contexts may not have passed through it)
+  const parses = dedupeParses(ctx.morph.get(key) ?? []);
+  if (parses.length === 0) {
     // R4 honesty gate: NO parse card of any kind — the column stays empty
     // (it must still occupy its slot so cards align under their words);
     // the word remains clickable → dictionary panel.
@@ -376,28 +379,17 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
 
   const order = rankParses(parses, ctx.lemmaFreq, ctx.genre);
   if (order.length > 1 && !expandedForms.has(key)) {
-    // COLLAPSED (R1): top-2 analyses compactly + 「另有 N 种可能」 chip.
+    // COLLAPSED (R1, merged rows): ONE compact row — primary analysis
+    // first, genuine alternates joined inline with 「·」, capped at
+    // MAX_VISIBLE_ALTS visible; overflow renders the expand chip.
     // Default state — never enumerate more until asked.
-    col.appendChild(compactCard(parses[order[0]], ctx));
-    col.appendChild(compactCard(parses[order[1]], ctx));
-    const nMore = order.length - 2;
-    if (nMore > 0) {
-      const chip = el("button", "more-chip",
-        `另有 ${nMore} 种可能`) as HTMLButtonElement;
-      chip.lang = "zh";
-      chip.type = "button";
-      chip.title = `${order.length} analyses — click to compare`;
-      chip.setAttribute("aria-label",
-        `${order.length} analyses for ${word}; ${nMore} more — click to show all`);
-      chip.addEventListener("click", () => toggleExpanded(word, ctx));
-      col.appendChild(chip);
-    }
+    col.appendChild(mergedCard(word, parses, order, ctx));
     appendDeepEntry(col, word); // wasm flag only — no-op otherwise
     return;
   }
 
   if (order.length > 1 && expandedForms.has(key)) {
-    // EXPANDED: every candidate, clearly separated
+    // EXPANDED: every DEDUPED candidate, clearly separated
     const groups = new Map<string, Parse[]>();
     for (const i of order) {
       const k = stripAccents(parses[i].l);
@@ -420,6 +412,95 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
   const comp = compoundFor(word, ctx);
   if (comp) col.appendChild(comp);
   appendDeepEntry(col, word); // wasm flag only — no-op otherwise
+}
+
+/* ---------------- merged same-token analysis row ---------------- */
+
+/** Alternates shown inline after the primary before the chip kicks in.
+ *  Hard cap per merge spec: at most 3 visible alternates. */
+const MAX_VISIBLE_ALTS = 3;
+
+/**
+ * One compact card holding EVERY visible candidate of a token in a single
+ * row: `rāma m. sg. nom. — gloss · rāma m. sg. acc. — gloss`. Replaces the
+ * old top-2 stacked cards that read as duplicated lines. Overflow past the
+ * alternate cap uses the existing 「另有 N 解」 chip mechanism. Segment
+ * glosses paint after all resolve; an exact repeat of the preceding gloss
+ * is suppressed so same-lemma alternates don't parrot the entry (the full
+ * text stays in the word panel).
+ */
+function mergedCard(
+  word: string,
+  parses: Parse[],
+  order: number[],
+  ctx: RenderCtx,
+): El {
+  const card = el("div", "pcard pcard-compact pcard-merged");
+  const head = el("div", "cand-head");
+  const visible = Math.min(1 + MAX_VISIBLE_ALTS, order.length);
+  const glossCells: El[] = [];
+  for (let k = 0; k < visible; k++) {
+    const p = parses[order[k]];
+    const seg = el("span", "cand-seg");
+    if (k > 0) {
+      const s = el("span", "seg-sep", "·");
+      s.setAttribute("aria-hidden", "true");
+      seg.appendChild(s);
+      seg.appendChild(document.createTextNode(" "));
+    }
+    seg.appendChild(lemmaDualEl(dispLemma(p.l)));
+    seg.appendChild(document.createTextNode(" "));
+    seg.appendChild(compactFeatsEl(p.p, p.f));
+    seg.appendChild(document.createTextNode(" "));
+    const g = el("span", "gloss seg-gloss");
+    g.appendChild(document.createTextNode("— "));
+    seg.appendChild(g);
+    glossCells.push(g);
+    head.appendChild(seg);
+  }
+  card.appendChild(head);
+  // paint glosses in segment order once every lookup settled: deterministic
+  // repeat-suppression (async per-cell fills could mis-attribute which
+  // segment "owns" the shared entry)
+  void Promise.all(
+    glossCells.map((_c, k) => mwGlossFor(parses[order[k]].l ?? "")),
+  ).then((txts) => {
+    let prev: string | null = null;
+    glossCells.forEach((g, i) => {
+      if (!g.isConnected) return; // column re-rendered meanwhile
+      const t = txts[i];
+      if (!t || t === prev) {
+        g.remove(); // 无词条 → omit silently; exact repeat → already shown
+        return;
+      }
+      prev = t;
+      g.append(t.length > 90 ? `${t.slice(0, 87)}…` : t);
+    });
+  });
+  const hidden = order.length - visible;
+  if (hidden > 0) card.appendChild(expandChip(word, hidden, order.length, ctx));
+  return card;
+}
+
+/** 「另有 N 解」 expander for candidates beyond the inline cap (existing
+ *  chip mechanism: flips expansion for this form across all live columns). */
+function expandChip(
+  word: string,
+  nHidden: number,
+  total: number,
+  ctx: RenderCtx,
+): HTMLButtonElement {
+  const chip = el("button", "more-chip", `另有 ${nHidden} 解`) as
+    HTMLButtonElement;
+  chip.lang = "zh";
+  chip.type = "button";
+  chip.title = `${total} analyses — click to compare`;
+  chip.setAttribute(
+    "aria-label",
+    `${total} analyses for ${word}; ${nHidden} more — click to show all`,
+  );
+  chip.addEventListener("click", () => toggleExpanded(word, ctx));
+  return chip;
 }
 
 /** Dual-script grammar-tag badge with COMPACT abbreviation, e.g. [gen.]
