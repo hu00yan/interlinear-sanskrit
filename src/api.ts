@@ -379,15 +379,27 @@ export function parseDedupeKey(p: Parse): string {
 }
 
 /** Drop analyses whose (lemma, abbreviated features, gloss) triplet was
- *  already seen; order-preserving (first occurrence kept). */
+ *  already seen; order-preserving (first occurrence kept). When an
+ *  otherwise-identical sibling carries the samāsa member chain (`m`) and
+ *  the kept one doesn't, the richer variant replaces it IN PLACE — same
+ *  displayed row, but compound blocks stay reachable after collection-time
+ *  dedupe (dharmakṣetre regression fix). */
 export function dedupeParses(parses: Parse[]): Parse[] {
-  const seen = new Set<string>();
+  const seen = new Map<string, Parse>();
   const out: Parse[] = [];
+  const hasM = (p: Parse): boolean =>
+    Array.isArray((p as Parse & { m?: unknown }).m);
   for (const p of parses) {
     const k = parseDedupeKey(p);
-    if (!seen.has(k)) {
-      seen.add(k);
+    const prev = seen.get(k);
+    if (!prev) {
+      seen.set(k, p);
       out.push(p);
+      continue;
+    }
+    if (!hasM(prev) && hasM(p)) {
+      seen.set(k, p);
+      out[out.indexOf(prev)] = p;
     }
   }
   return out;

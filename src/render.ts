@@ -384,6 +384,8 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     // MAX_VISIBLE_ALTS visible; overflow renders the expand chip.
     // Default state — never enumerate more until asked.
     col.appendChild(mergedCard(word, parses, order, ctx));
+    const compMerged = compoundFor(word, ctx);
+    if (compMerged) col.appendChild(compMerged);
     appendDeepEntry(col, word); // wasm flag only — no-op otherwise
     return;
   }

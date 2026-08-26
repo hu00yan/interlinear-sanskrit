@@ -25,6 +25,36 @@ export interface CompoundMember {
   f: string; // inflection tags ("पुं;2;एक", "Cpd", …)
 }
 
+/**
+ * Genuineness gate (wrong-Chinese glitch fix): shard entries come in two
+ * shapes that both carry member chains —
+ *   • REAL DCS samāsa rows: the CoNLL-U range marks every non-head member
+ *     with the `Cpd` tag, and the HEAD (last member) carries case inflection
+ *     (digits 1–7 / सम्बोधन) with a nominal/participle POS.
+ *   • Sandhi-fusion span rows (pipeline lotus-keys feature): adjacent-row
+ *     concatenations like पश्य+एताम् or आहुः+त्वाम्+ऋषयः reuse the same `m`
+ *     shape, but their first member never carries `Cpd` and their last
+ *     member is often an uninflected particle (च/वत्/एव) or a finite verb.
+ * Rendering a span as 「复合词成分」 presents ordinary sandhi as a compound —
+ * exactly the wrong-content glitch users reported. Only chains passing this
+ * test may render as samāsa blocks, everywhere (cards, panel, lookup).
+ */
+const CASE_TAGS = new Set([
+  "1", "2", "3", "4", "5", "6", "7",
+  "\u0938\u092e\u094d\u092c\u094b\u0927\u0928", // सम्बोधन (voc.)
+]);
+
+export function isGenuineSamasa(members: CompoundMember[]): boolean {
+  if (members.length < 2) return false;
+  const f0 = (members[0].f ?? "").split(/[;\s|]+/);
+  if (!f0.includes("Cpd")) return false;
+  const head = members[members.length - 1];
+  // samāsa head is an inflected nominal — never particle or finite verb
+  if (head.p === "indecl" || head.p === "verb") return false;
+  const hf = (head.f ?? "").split(/[;\s|]+/);
+  return hf.some((t) => CASE_TAGS.has(t));
+}
+
 /** Parse entries may carry the member chain (optional shard field). */
 export function membersOf(p: Parse): CompoundMember[] | null {
   const m = (p as Parse & { m?: unknown }).m;
@@ -32,7 +62,7 @@ export function membersOf(p: Parse): CompoundMember[] | null {
   const out = m.filter((x): x is CompoundMember =>
     !!x && typeof x === "object" &&
     typeof (x as CompoundMember).d === "string").slice(0, 8);
-  return out.length >= 2 ? out : null;
+  return out.length >= 2 && isGenuineSamasa(out) ? out : null;
 }
 
 /* ---------------- member-lemma MW glosses (memoized) ---------------- */
