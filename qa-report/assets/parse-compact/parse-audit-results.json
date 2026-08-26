@@ -1,0 +1,144 @@
+{
+  "pages": [
+    {
+      "name": "BhG 1–3",
+      "tokens": 1794,
+      "m1Max": 3,
+      "m1Bad": 0,
+      "m2Bad": [],
+      "m4Bad": [],
+      "m4Checked": 242,
+      "m5Bad": [],
+      "glossMax": 120,
+      "cjkBad": [],
+      "emptyCols": 20,
+      "m2BadCount": 0
+    },
+    {
+      "name": "Lotus ch1–2",
+      "tokens": 3563,
+      "m1Max": 3,
+      "m1Bad": 0,
+      "m2Bad": [],
+      "m4Bad": [],
+      "m4Checked": 531,
+      "m5Bad": [],
+      "glossMax": 120,
+      "cjkBad": [],
+      "emptyCols": 751,
+      "m2BadCount": 0
+    },
+    {
+      "name": "Meghadūta sarga 1",
+      "tokens": 569,
+      "m1Max": 3,
+      "m1Bad": 0,
+      "m2Bad": [],
+      "m4Bad": [],
+      "m4Checked": 45,
+      "m5Bad": [],
+      "glossMax": 120,
+      "cjkBad": [],
+      "emptyCols": 38,
+      "m2BadCount": 0
+    },
+    {
+      "name": "Raghuvamśa opening",
+      "tokens": 309,
+      "m1Max": 3,
+      "m1Bad": 0,
+      "m2Bad": [],
+      "m4Bad": [],
+      "m4Checked": 24,
+      "m5Bad": [],
+      "glossMax": 120,
+      "cjkBad": [],
+      "emptyCols": 104,
+      "m2BadCount": 0
+    },
+    {
+      "name": "Rāmāyaṇa bāla sample",
+      "tokens": 3356,
+      "m1Max": 3,
+      "m1Bad": 0,
+      "m2Bad": [],
+      "m4Bad": [],
+      "m4Checked": 384,
+      "m5Bad": [],
+      "glossMax": 120,
+      "cjkBad": [],
+      "emptyCols": 30,
+      "m2BadCount": 0
+    },
+    {
+      "name": "Dhammapada 1–20",
+      "tokens": 375,
+      "m1Max": 3,
+      "m1Bad": 0,
+      "m2Bad": [],
+      "m4Bad": [],
+      "m4Checked": 0,
+      "m5Bad": [],
+      "glossMax": 118,
+      "cjkBad": [],
+      "emptyCols": 322,
+      "m2BadCount": 0
+    }
+  ],
+  "lookups": [
+    {
+      "q": "kim",
+      "header": "解析 Grammar · 7 readings",
+      "nCards": 3,
+      "dups": 0,
+      "maxGloss": 94,
+      "firstLemma": "kim",
+      "firstIndecl": true
+    },
+    {
+      "q": "ka",
+      "header": "解析 Grammar · 3 readings",
+      "nCards": 3,
+      "dups": 0,
+      "maxGloss": 94,
+      "firstLemma": "ka",
+      "firstIndecl": false
+    },
+    {
+      "q": "ca",
+      "header": "解析 Grammar · 1 reading",
+      "nCards": 1,
+      "dups": 0,
+      "maxGloss": 102,
+      "firstLemma": "ca",
+      "firstIndecl": true
+    },
+    {
+      "q": "vā",
+      "header": "解析 Grammar · 10 readings",
+      "nCards": 3,
+      "dups": 0,
+      "maxGloss": 89,
+      "firstLemma": "vā",
+      "firstIndecl": true
+    },
+    {
+      "q": "rāma",
+      "header": "解析 Grammar · 4 readings",
+      "nCards": 3,
+      "dups": 0,
+      "maxGloss": 45,
+      "firstLemma": "rāma",
+      "firstIndecl": false
+    },
+    {
+      "q": "deva",
+      "header": "解析 Grammar · 20 readings",
+      "nCards": 3,
+      "dups": 0,
+      "maxGloss": 82,
+      "firstLemma": "deva",
+      "firstIndecl": false
+    }
+  ]
+}
