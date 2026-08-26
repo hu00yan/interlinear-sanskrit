@@ -8,13 +8,14 @@ Source (verified in qa-report/pali-morph-sources.md Lead 2):
     - lookup:        reverse index, any inflected form -> headword ids
   .cache-dpd/deconstructor_output.json surface sandhi form -> ranked splits
 
-Pass A scope (this round): FLAT inflections only. Every lookup hit emits
-{lemma, POS-map, coarse feats, English gloss}; NO template expansion, so
-nominal case/number and verbal tense/person stay UNRESOLVED (feats carry
-the headword's gender only). Compound fallback uses deconstructor_output
-EXACT-FULL-FORM matches whose every member independently hits lookup;
-candidates failing that are dropped (explicit misses stay absent/null —
-no guessing, per FST-PORT-CONTRACT.md honesty rule).
+Pass A scope (this round): FLAT inflections only — NO inflection_templates
+expansion, so nominal case/number stays unresolved; feats read off the
+headword's own row (gender m./f./n.; verb tense from pos; person+number
+when the grammar line spells it). Compound fallback uses
+deconstructor_output EXACT-FULL-FORM matches whose every member
+independently hits lookup; candidates failing that are dropped (explicit
+misses stay absent/null — no guessing, per FST-PORT-CONTRACT.md honesty
+rule).
 
 Key normalization (mirrors pipeline/sanscript.slp1_key + house convention,
 cf. build_morph_dcs._canonical_keys):
@@ -40,7 +41,7 @@ Usage:
       [--cache .cache-dpd] [--out-root public/data] [--data-root public/data]
       [--report qa-report/logs/pali-dpd-build.json]
 
-License: DPB data AND derived shards are CC BY-NC-SA 4.0 (BY attribute +
+License: DPD data AND derived shards are CC BY-NC-SA 4.0 (BY attribute +
 NC non-commercial + SA share-alike). Every emitted artifact carries the
 provenance block; site display must attribute DPD (see
 qa-report/pali-dpd-ingest.md).
@@ -52,7 +53,6 @@ import os
 import re
 import sqlite3
 import sys
-import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
@@ -103,44 +103,70 @@ def lookup_key_of(dpd_form: str) -> str:
 
 # --- POS mapping (house vocab: noun | verb | part | indecl, cf.
 #     build_morph_dcs.map_pos) ------------------------------------------------
+# dpd.db v0.4.20260728 DISTINCT(pos): adj nt masc fem pr pp aor prp abs ind
+# sandhi ptp idiom inf ger pron card opt fut ordin imperf prefix imp root
+# cond suffix cs letter ve perf  (measured 2026-08-26)
 
-POS_NOUNISH = {"adj", "masc", "fem", "neut", "ntp", "num", "ord"}
-POS_VERBISH = {"verb", "dut", "caus", "fact", "irr"}
-POS_PARTISH = {"pp", "prp", "pron"}       # participles/pronouns -> "part"
-POS_INDECLISH = {"ind", "idi", "neg", "cs", "epu", "sandhi", "suffix",
-                 "pt", "avy", "conj", "interj", "abbrev"}
-POS_MAP_EXTRA = {"inf": "verb", "root": "part"}
+POS_NOUNISH = {"adj", "masc", "fem", "nt", "card", "ordin"}
+POS_FINITE = {"pr": "pres.", "aor": "aor.", "opt": "opt.", "fut": "fut.",
+              "imperf": "impf.", "imp": "impv.", "cond": "cond.",
+              "perf": "perf."}
+POS_PARTISH = {"pp": "past;part.", "prp": "pres.;part.",
+               "ptp": "fut.;part.", "ger": "gerd.", "inf": "inf.",
+               "pron": "", "root": "", "suffix": "", "cs": ""}
+POS_INDECLISH = {"ind": "", "idiom": "", "sandhi": "", "prefix": "",
+                 "letter": "", "ve": ""}
 
 
 def map_pos(dpd_pos: str) -> str:
+    """House POS ∈ noun|verb|part|indecl. Finite verb forms -> verb;
+    non-finite (participles/absolutive/infinitive) -> part exactly as
+    build_morph_dcs.map_pos treats Conv/Part/Inf; pronouns -> part."""
     p = (dpd_pos or "").strip().lower()
     if p in POS_NOUNISH:
         return "noun"
-    if p in POS_VERBISH or p == "inf":
+    if p in POS_FINITE:
         return "verb"
-    if p in POS_PARTISH or p == "root":
+    if p in POS_PARTISH:
         return "part"
-    if p in POS_INDECLISH:
-        return "indecl"
-    # verbs hide behind unknown tags less often than nouns; default keeps
-    # every analysis renderable without inventing a POS
-    return "part"
+    return "indecl"
 
 
-_GENDER_TAGS = [("masc", "m."), ("fem", "f."), ("neut", "n."),
-                ("mf", "m.f."), ("nt", "n.")]
+_PERSON_NUM = re.compile(r"\b([123])(?:st|nd|rd)\s+(sg|pl)\b")
+_PERSON_ABBR = {"1": "1st", "2": "2nd", "3": "3rd"}
+_GENDER_TOKENS = re.compile(r"\b(masc|fem|neut|nt|m|f|n)\b")
+_GENDER_ABBR = {"masc": "m.", "fem": "f.", "neut": "n.", "nt": "n.",
+                "m": "m.", "f": "f.", "n": "n."}
 
 
-def feats_from_grammar(grammar: str, pos: str) -> str:
-    """Pass A coarse feats: gender tags only (case/number/tense need the
-    inflection_templates expansion = Pass B, deliberately skipped)."""
+def feats_from_row(pos: str, grammar: str) -> str:
+    """Pass A coarse feats, read ONLY off the headword's own row (no
+    inflection_templates expansion this round):
+      * nominal gender (pos or grammar) -> m./f./n.  (cf. sanskrit पुं)
+      * finite verbs: tense abbr from pos + person/number when the
+        grammar line spells it out ("aor 2nd pl of akāsi").
+    Everything else stays empty rather than guessed."""
+    p = (pos or "").strip().lower()
     g = (grammar or "").lower()
     tags = []
-    for needle, abbr in (("masc", "m."), ("fem", "f."), ("neut", "n.")):
-        if needle in g:
-            tags.append(abbr)
-    if not tags and "nt" in g.split():
+    if p == "masc":
+        tags.append("m.")
+    elif p == "fem":
+        tags.append("f.")
+    elif p == "nt":
         tags.append("n.")
+    elif p in POS_NOUNISH:
+        m = _GENDER_TOKENS.search(g)
+        if m:
+            tags.append(_GENDER_ABBR[m.group(1)])
+    if p in POS_FINITE:
+        tags.insert(0, POS_FINITE[p])
+        m = _PERSON_NUM.search(g)
+        if m:
+            tags.extend([_PERSON_ABBR[m.group(1)],
+                         "sg." if m.group(2) == "sg" else "pl."])
+    elif p in POS_PARTISH and POS_PARTISH[p]:
+        tags.insert(0, POS_PARTISH[p])
     return ";".join(tags)
 
 
@@ -230,15 +256,24 @@ class DpdDb:
         print(f"[pali_dpd] dpd.db ok: dpd_headwords={n_hw} rows, "
               f"lookup={n_lk} rows")
 
-    def scan_lookup(self, needed_norm: set) -> dict:
+    def scan_lookup(self, needed_norm: set, raw_cores: set) -> dict:
         """One pass over `lookup`: normalized form-key -> ordered headword
         ids. Scanning (instead of per-form IN queries) catches every DPD
-        spelling that folds onto a corpus key, incl. ṃ/ṁ variants."""
-        wanted = {}
+        spelling that folds onto a corpus key, incl. ṃ/ṁ variants.
+        A cheap raw-string prefilter keeps the expensive SLP1 conversion
+        off the hot path: raw_cores holds the letter-only niggahīta-folded
+        lowercase CORPUS spellings (pre-transliteration), which is exactly
+        the space raw lookup_key values live in."""
         out = {}
         q = "SELECT lookup_key, headwords FROM lookup"
         for lk, hw_json in self.con.execute(q):
-            nk = lookup_key_of(lk or "")
+            if lk is None:
+                continue
+            low = lk.lower()
+            if low not in raw_cores and \
+                    fold_niggahita(low) not in raw_cores:
+                continue
+            nk = lookup_key_of(lk)
             if nk not in needed_norm:
                 continue
             try:
@@ -254,8 +289,6 @@ class DpdDb:
                 if i not in seen:
                     cur.append(i)
                     seen.add(i)
-            wanted[nk] = True
-        del wanted
         return out
 
     def headwords(self, ids) -> dict:
@@ -307,13 +340,14 @@ def analyses_for(ids, hw) -> list:
         if row is None:
             continue
         lemma, pos, grammar, stem, meaning = row
-        lemma = (lemma or "").strip()
+        lemma = clean_lemma(lemma)
         if not lemma:
             continue
         p = map_pos(pos)
+        stem_s = (stem or "").strip().lstrip("!")
         a = {"l": lemma, "p": p,
-             "f": feats_from_grammar(grammar or "", p),
-             "x": (stem or "").strip()}
+             "f": feats_from_row(pos or "", grammar or ""),
+             "x": "" if stem_s == "-" else stem_s}
         g = clean_gloss(meaning or "")
         if g:
             a["g"] = g
@@ -324,6 +358,15 @@ def analyses_for(ids, hw) -> list:
         if len(out) >= MAX_ANALYSES_PER_KEY:
             break
     return out
+
+
+_LEMMA_NUM = re.compile(r" \d+(\.\d+)*$")
+
+
+def clean_lemma(lemma: str) -> str:
+    """DPD lemma_1 carries homonym numbers ("dhamma 1.01"); display keeps
+    the bare word."""
+    return _LEMMA_NUM.sub("", (lemma or "").strip()).strip()
 
 
 def split_parts(candidate: str) -> list:
@@ -404,12 +447,16 @@ def main() -> None:
     # pass 1: resolve flat inflections via the lookup reverse index
     tok_keys = {}           # raw token -> canonical key ("" when unusable)
     keys_needed = set()
+    raw_cores = set()       # pre-SLP1 corpus spellings (prefilter space)
     for t in distinct:
         k = canon_key(t)
         tok_keys[t] = k
         if k:
             keys_needed.add(k)
-    lookup_hits = db.scan_lookup(keys_needed)
+            core = word_core(t)
+            raw_cores.add(core)
+            raw_cores.add(fold_niggahita(core.lower()))
+    lookup_hits = db.scan_lookup(keys_needed, raw_cores)
     print(f"[pali_dpd] lookup: {len(lookup_hits)}/{len(keys_needed)} "
           f"distinct keys resolved")
 
