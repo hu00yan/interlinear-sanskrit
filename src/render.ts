@@ -259,18 +259,35 @@ function onGlobalKey(e: KeyboardEvent): void {
 }
 document.addEventListener("keydown", onGlobalKey);
 
-function registerCol(key: string, col: El, word: string, ctx: RenderCtx): void {
+let pruneQueued = false;
+
+/** Prune disconnected columns from every registry entry — DEFERRED to a
+ *  macrotask. A synchronous isConnected filter here was a corpus-wide bug
+ *  (Yamaka/Paṭṭhāna): parseCards registers columns while their row is still
+ *  DETACHED (parseRow appends to `row` before `container.appendChild(row)`),
+ *  so on pages where one form repeats >64× the prune discarded freshly
+ *  pushed not-yet-connected columns — their 「另有 N 解」 chips then expanded
+ *  every OTHER instance of the form while staying collapsed themselves. */
+function queueColPrune(): void {
+  if (pruneQueued) return;
+  pruneQueued = true;
+  setTimeout(() => {
+    pruneQueued = false;
+    for (const [k, list] of colsByForm) {
+      const live = list.filter((e) => e.col.isConnected);
+      if (live.length) colsByForm.set(k, live);
+      else colsByForm.delete(k);
+    }
+  }, 0);
+}
+
+function registerCol(key: string, col: El, word: string): void {
   let arr = colsByForm.get(key);
   if (!arr) colsByForm.set(key, (arr = []));
-  const entry = { col, word };
-  arr.push(entry);
-  // drop dead entries lazily when their column left the document
-  if (arr.length > 64) {
-    colsByForm.set(
-      key,
-      arr.filter((e) => e.col.isConnected),
-    );
-  }
+  arr.push({ col, word });
+  // memory guard: prune lazily, NEVER synchronously against mid-render
+  // (detached) columns — see queueColPrune.
+  if (arr.length > 64) queueColPrune();
 }
 
 /** Flip expansion for one word-form and re-render every live column. */
@@ -313,7 +330,7 @@ export async function prepare(
 
 function parseCards(word: string, ctx: RenderCtx): El {
   const col = el("div", "pcol");
-  registerCol(stripAccents(word), col, word, ctx);
+  registerCol(stripAccents(word), col, word);
   fillParseCol(col, word, ctx);
   return col;
 }
