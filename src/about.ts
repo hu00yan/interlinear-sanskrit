@@ -1,5 +1,10 @@
 // About page: data sources & licenses, references, tech stack, acknowledgments.
 // Built exclusively with textContent — no innerHTML anywhere.
+import { exportJSON as exportVocab, importJSON as importVocab } from "./vocab";
+import {
+  exportJSON as exportBookmarks,
+  importJSON as importBookmarks,
+} from "./bookmarks";
 
 const REPO_URL = "https://github.com/hu00yan/interlinear-sanskrit";  // verified live
 
@@ -127,6 +132,88 @@ function acknowledgments(): El {
   );
 }
 
+/** Your-data backup row: export/import the vocabulary book and bookmarks
+ *  (localStorage-only data) as JSON files. Ported from greek-reader. */
+function yourData(): El {
+  const wrap = el("div", "about-yourdata");
+  wrap.appendChild(p(
+    "Your vocabulary book and bookmarks live only in this browser's " +
+    "localStorage — nothing is uploaded. Export them as JSON to back up or " +
+    "move to another device; importing merges without overwriting.",
+  ));
+  const row = el("p", "yourdata-row");
+
+  const mkDownload = (
+    label: string,
+    name: string,
+    dump: () => string,
+  ): HTMLButtonElement => {
+    const b = el("button", "yourdata-btn") as HTMLButtonElement;
+    b.type = "button";
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      const blob = new Blob([dump()], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    return b;
+  };
+
+  const mkImport = (
+    label: string,
+    merge: (text: string) => { added: number; bad: boolean },
+  ): El => {
+    const wrapBtn = el("span");
+    const b = el("button", "yourdata-btn") as HTMLButtonElement;
+    b.type = "button";
+    b.textContent = label;
+    const input = document.createElement("input") as HTMLInputElement;
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.hidden = true;
+    const status = el("span", "yourdata-status");
+    b.addEventListener("click", () => input.click());
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (): void => {
+        const res = merge(String(reader.result ?? ""));
+        status.textContent = res.bad
+          ? "Import failed: not a valid file."
+          : `Imported ${res.added} new item${res.added === 1 ? "" : "s"}.`;
+      };
+      reader.readAsText(file);
+      input.value = "";
+    });
+    wrapBtn.appendChild(b);
+    wrapBtn.appendChild(input);
+    wrapBtn.appendChild(status);
+    return wrapBtn;
+  };
+
+  row.appendChild(mkDownload(
+    "Export vocabulary",
+    "sanskrit-reader-vocab.json",
+    exportVocab,
+  ));
+  row.appendChild(mkImport("Import vocabulary…", importVocab));
+  row.appendChild(mkDownload(
+    "Export bookmarks",
+    "sanskrit-reader-bookmarks.json",
+    exportBookmarks,
+  ));
+  row.appendChild(mkImport("Import bookmarks…", importBookmarks));
+  wrap.appendChild(row);
+  return wrap;
+}
+
 export function renderAbout(app: HTMLElement): void {
   app.replaceChildren();
   app.appendChild(el("h1", undefined, "About Sanskrit Reader"));
@@ -142,6 +229,16 @@ export function renderAbout(app: HTMLElement): void {
   app.appendChild(inspirationList());
   app.appendChild(h2("Tech stack"));
   app.appendChild(techList());
+
+  app.appendChild(h2("Your vocabulary & bookmarks"));
+  app.appendChild(p(
+    "Reading features: tap any word for its parse panel and “Mark known ✓” " +
+    "to dim words you know, switch the toolbar Vocab toggle to highlight " +
+    "what is left, star lines to bookmark them, and share ?ref= deep links " +
+    "to exact verses.",
+  ));
+  app.appendChild(yourData());
+
   app.appendChild(h2("Acknowledgments"));
   app.appendChild(acknowledgments());
 }
