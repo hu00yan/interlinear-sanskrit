@@ -1,12 +1,12 @@
 {
   "workId": "pali-dn",
-  "started": "2026-08-26T11:24:20",
+  "started": "2026-08-26T13:32:14",
   "status": "ok",
   "stages": [
     {
       "stage": "10-fetch",
       "status": "ok",
-      "duration_ms": 51,
+      "duration_ms": 116,
       "errors": [],
       "warnings": [],
       "artifacts": [
@@ -16,7 +16,7 @@
     {
       "stage": "20-normalize",
       "status": "ok",
-      "duration_ms": 195,
+      "duration_ms": 198,
       "errors": [],
       "warnings": [],
       "artifacts": [
@@ -26,7 +26,7 @@
     {
       "stage": "30-tokenize",
       "status": "ok",
-      "duration_ms": 217,
+      "duration_ms": 575,
       "errors": [],
       "warnings": [],
       "artifacts": [
@@ -36,7 +36,7 @@
     {
       "stage": "40-align",
       "status": "ok",
-      "duration_ms": 136,
+      "duration_ms": 123,
       "errors": [],
       "warnings": [],
       "artifacts": [
@@ -64,7 +64,7 @@
     {
       "stage": "70-emit",
       "status": "ok",
-      "duration_ms": 139,
+      "duration_ms": 122,
       "errors": [],
       "warnings": [],
       "artifacts": [
@@ -75,7 +75,7 @@
     {
       "stage": "90-qa",
       "status": "ok",
-      "duration_ms": 104,
+      "duration_ms": 107,
       "errors": [],
       "warnings": [],
       "artifacts": [
@@ -84,11 +84,6 @@
     }
   ],
   "manifest": "/Users/huyan00/mycode/interlinear-sanskrit/pipeline/works/pali-dn.json",
-  "published": [
-    "texts/pali/dn.json",
-    "trans/pali-dn-sujato.json"
-  ],
-  "publish_root": "public/data",
-  "finished": "2026-08-26T11:24:21",
-  "duration_ms": 882
+  "finished": "2026-08-26T13:32:15",
+  "duration_ms": 1271
 }
