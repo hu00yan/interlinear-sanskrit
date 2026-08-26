@@ -16,3 +16,5 @@ dist/
 # local QA scratch
 test-results/
 qa-report/.probe*
+.pipeline-run/
+.pipeline-proof/
