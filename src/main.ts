@@ -25,6 +25,7 @@ import {
 } from "./bookmarks";
 import { setupTranslationLayer, type TlLayerHandle } from "./zh-layer";
 import { setupSidebar, teardownSidebar, type SidebarHandle } from "./sidebar";
+import "./script-display";
 
 const app = document.getElementById("app") as HTMLElement;
 

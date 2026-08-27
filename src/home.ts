@@ -15,6 +15,7 @@ import { wordLookupWidget } from "./lookup";
 import { lexiconButton } from "./lexicon";
 import { themeControl } from "./theme";
 import { aboutLink } from "./about";
+import { scriptModeControl } from "./script-display";
 
 export type HomeSection = "sa" | "pi";
 
@@ -128,6 +129,7 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
   input.spellcheck = false;
   searchWrap.appendChild(input);
   searchWrap.appendChild(themeControl());
+  searchWrap.appendChild(scriptModeControl());
   searchWrap.appendChild(lexiconButton());
   // no visible "/" button here — the shortcut lives in the document
   // keydown listener below; a chip invited pointless clicking.

@@ -462,6 +462,27 @@ body.dev-script .lemma { line-height: 1.9; }
 /* toolbar toggle affordance while reading Devanagari */
 button.dev-active { font-weight: 600; }
 
+/* Generated content carries an explicit marker. Dictionary source quotations
+   intentionally lack it and therefore retain their supplied spelling. */
+[data-script-mode="iast"] [data-generated-script] .deva-line,
+[data-script-mode="iast"] [data-generated-script] .lemma-deva,
+[data-script-mode="iast"] [data-generated-script] .feat-deva,
+[data-script-mode="iast"] [data-generated-script] .script-deva { display: none; }
+[data-script-mode="deva"] [data-generated-script] .iast-line,
+[data-script-mode="deva"] [data-generated-script] .lemma-iast,
+[data-script-mode="deva"] [data-generated-script] .feat-iast,
+[data-script-mode="deva"] [data-generated-script] .script-iast { display: none; }
+[data-script-mode="both"] [data-generated-script] .deva-line,
+[data-script-mode="both"] [data-generated-script] .lemma-deva,
+[data-script-mode="both"] [data-generated-script] .feat-deva,
+[data-script-mode="both"] [data-generated-script] .script-deva { display: block; }
+.script-mode-control { display: inline-flex; flex-wrap: wrap; max-width: 100%; }
+.script-mode-control button { border-radius: 0; border-right-width: 0; }
+.script-mode-control button:first-child { border-radius: var(--radius-m) 0 0 var(--radius-m); }
+.script-mode-control button:last-child { border-radius: 0 var(--radius-m) var(--radius-m) 0; border-right-width: 1px; }
+.script-mode-control button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.script-pref-controls { display: none; }
+
 /* parse area separated by whitespace + scale, not a dashed rule */
 .parse-row {
   display: flex;
