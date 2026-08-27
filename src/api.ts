@@ -110,7 +110,11 @@ export interface Parse {
   x: string; // dialects / stem types
   /** Inline English gloss when the DCS shard ships one (optional). */
   g?: string;
+  /** Curated occurrence provenance. Global dictionary shards omit this. */
+  source?: "dcs";
+  confidence?: number;
 }
+export type OccurrenceMorph = Map<string, Parse[]>;
 export interface Gloss {
   u: string; // headword (Unicode)
   g: string; // Monier-Williams gloss
@@ -150,6 +154,33 @@ export function loadPart(relPath: string): Promise<WorkPart> {
     }
     return part;
   });
+}
+
+/** Load DCS parses by `(unit ref, token index)`, never by surface form.
+ * A missing index means this work has not passed occurrence alignment and is
+ * deliberately not a DCS reader work. */
+export async function loadOccurrenceMorph(
+  units: Unit[], workId?: string,
+): Promise<OccurrenceMorph | null> {
+  if (!workId) return null;
+  const index = await fetchJSON<{ source?: string; refs?: Record<string, string> }>(
+    `data/morph-occurrence/by-work/${workId}/index.json`,
+  ).catch(() => null);
+  if (!index || index.source !== "dcs" || !index.refs) return null;
+  const names = new Set(units.map((u) => index.refs![u.ref]).filter(Boolean));
+  const files = await Promise.all([...names].map((name) => fetchJSON<Record<string, Record<string, Parse[]>>>(
+    `data/morph-occurrence/by-work/${workId}/${name}`,
+  ).catch(() => null)));
+  const out: OccurrenceMorph = new Map();
+  for (const file of files) for (const [ref, tokens] of Object.entries(file ?? {})) {
+    for (const [tokenIndex, parses] of Object.entries(tokens)) {
+      // Reject malformed static data rather than silently treating it as gold.
+      if (parses.every((p) => p.source === "dcs" && p.confidence === 1)) {
+        out.set(`${ref}\u0000${tokenIndex}`, parses);
+      }
+    }
+  }
+  return out;
 }
 
 /**
