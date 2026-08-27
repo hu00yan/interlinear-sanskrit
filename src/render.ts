@@ -1,6 +1,6 @@
 // Shared interlinear rendering: Greek units (verse lines or prose chunks)
 // with per-word parse cards, controls bar, and the click-for-details panel.
-import { dedupeParses, fetchJSON, loadCatalog, loadGloss, loadMorph, stripAccents, zhNameOf, zhTitleOf, type Catalog, type Gloss, type Parse, type Unit } from "./api";
+import { dedupeParses, fetchJSON, loadCatalog, loadGloss, loadMorph, loadOccurrenceMorph, stripAccents, zhNameOf, zhTitleOf, type Catalog, type Gloss, type OccurrenceMorph, type Parse, type Unit } from "./api";
 import { applyClasses, attachChip, isKnown, markKnown, toolbarControls, unmarkKnown } from "./vocab";
 import { copyLinkButtonFor, openStarPanel, starButtonFor } from "./bookmarks";
 import { openLexicon, lexiconButton } from "./lexicon";
@@ -78,6 +78,8 @@ export interface RenderCtx {
   /** Work language tag ("pi" for Pali): Roman-script passthrough —
    *  no Devanagari conversion in lemma/panel display either. */
   lang?: string;
+  /** Non-null means inline grammar is occurrence-DCS only: no surface fallback. */
+  occurrence?: OccurrenceMorph | null;
 }
 
 /* ---------------- parse ranking ---------------- */
@@ -253,6 +255,7 @@ let expandedView: El | null = null;
 const expandedForms = new Set<string>();
 const colsByForm = new Map<string, Array<{ col: El; word: string }>>();
 let currentCtx: RenderCtx | null = null;
+const occurrenceByCol = new WeakMap<El, Parse[]>();
 
 function resetExpansion(container: El): void {
   if (expandedView !== container) {
@@ -267,7 +270,8 @@ function rerenderAll(): void {
   if (!currentCtx) return;
   for (const arr of colsByForm.values()) {
     for (const entry of arr) {
-      if (entry.col.isConnected) fillParseCol(entry.col, entry.word, currentCtx);
+      if (entry.col.isConnected) fillParseCol(entry.col, entry.word, currentCtx,
+        occurrenceByCol.get(entry.col));
     }
   }
 }
@@ -364,19 +368,24 @@ export async function prepare(
   scope?: string,
 ): Promise<RenderCtx> {
   const forms = units.flatMap((u) => u.words);
-  const morph = await loadMorph(forms, scope);
+  const occurrence = await loadOccurrenceMorph(units, scope);
+  // A migrated work must never draw inline grammar from global surface shards.
+  const morph = occurrence ? new Map<string, Parse[]>() : await loadMorph(forms, scope);
   const lemmas: string[] = [];
   for (const w of new Set(forms)) {
     for (const p of morph.get(stripAccents(w)) ?? []) lemmas.push(p.l);
   }
   const gloss = await loadGloss(lemmas);
-  return { morph, gloss };
+  return { morph, gloss, occurrence };
 }
 
-function parseCards(word: string, ctx: RenderCtx): El {
+function parseCards(word: string, ctx: RenderCtx, ref?: string, tokenIndex?: number): El {
   const col = el("div", "pcol");
   registerCol(stripAccents(word), col, word);
-  fillParseCol(col, word, ctx);
+  const occurrence = ctx.occurrence && ref !== undefined && tokenIndex !== undefined
+    ? ctx.occurrence.get(`${ref}\u0000${tokenIndex}`) ?? [] : undefined;
+  if (occurrence !== undefined) occurrenceByCol.set(col, occurrence);
+  fillParseCol(col, word, ctx, occurrence);
   return col;
 }
 
@@ -489,13 +498,13 @@ function extrasLine(p: Parse): El | null {
 }
 
 /** (Re)render one word's parse column per current expansion state. */
-function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
+function fillParseCol(col: El, word: string, ctx: RenderCtx, occurrence?: Parse[]): void {
   col.replaceChildren();
   const key = stripAccents(word);
   // dedupe BEFORE rendering the candidate list (idempotent: loadMorph
   // already drops identical triplets at collection time; live/paste-built
   // contexts may not have passed through it)
-  const parses = dedupeParses(ctx.morph.get(key) ?? []);
+  const parses = dedupeParses(occurrence ?? ctx.morph.get(key) ?? []);
   if (parses.length === 0) {
     // R4 honesty gate: NO parse card of any kind — the column stays empty
     // (it must still occupy its slot so cards align under their words);
@@ -923,7 +932,7 @@ const scripts = el("div", "unit-scripts greek-line");
     const parseRow = el("div", "parse-row");
     unit.words.forEach((w, i) => {
       if (speakers[i]) return; // speaker labels get no parse column
-      parseRow.appendChild(parseCards(w, ctx));
+      parseRow.appendChild(parseCards(w, ctx, unit.ref, i));
     });
     // Regression fix (3026b36 dropped this line): the parse cards were built
     // but never attached — every line rendered with NO grammatical parsing.
