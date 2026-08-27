@@ -23,6 +23,7 @@ import { stripAccents, type Parse } from "./api";
 import { featSlotsOf } from "./feats";
 import { iastToDev, isDevanagari, slp1KeyFor } from "./translit";
 import { DCS_PREF, DCS_PREF_FULL } from "./dcs-pref";
+import { compactGloss as compactMwGloss, type GlossEntries } from "./gloss";
 
 /** Visible collapsed group-rows per token (spec hard cap). */
 export const MAX_VISIBLE_GROUPS = 3;
@@ -296,6 +297,8 @@ export interface GroupRankOpts {
   base?: (p: Parse) => number;
   /** MW gloss lookup by lemma (sync — callers preload into ctx.gloss). */
   glossOf?: (lemma: string) => string | undefined;
+  /** Loaded exact dictionary entries for view-model resolution. */
+  glossEntries?: GlossEntries;
   /** Surface/query form: groups whose lemma matches it rank up. */
   form?: string;
 }
@@ -481,7 +484,16 @@ export function buildRankedGroups(
   const groups = allUninflected(filtered)
     ? collapseIndeclToken(filtered, opts.form)
     : groupParses(filtered);
-  return rankGroups(groups, opts);
+  // Occurrence parses are intentionally not rewritten by loading. Attach the
+  // exact already-loaded dictionary text only to this display projection, so
+  // every consumer of ranked groups sees the same resolved source gloss.
+  return rankGroups(groups, opts).map((g) => ({
+    ...g,
+    members: g.members.map((p) => p.g || !opts.glossOf ? p : {
+      ...p,
+      g: opts.glossOf(p.l ?? ""),
+    }),
+  }));
 }
 
 /** Flat analyses in ranked-group order (compound scan order etc.). */
@@ -520,23 +532,10 @@ export function clipGloss(txt: string, max = GLOSS_MAX_CHARS): string {
  * available in the word-detail dictionary section.
  */
 export function compactGloss(txt: string, max = GLOSS_MAX_CHARS): string | null {
-  let t = (txt ?? "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\[[^\]]*\]/g, " ")
-    .replace(/[\u0900-\u097f\u3400-\u9fff]/g, " ")
-    .replace(/\b(?:m|f|n|mf|ind|pron|nom|acc|dat|abl|gen|loc|voc|sg|du|pl|cf|see)\.?\b/gi, " ")
-    .replace(/\b(?:RV|AV|VS|TS|ŚBr|ŚB|MBh|R|Pāṇ|Pāṇini)\.?\s*[\d.,;:()\-–—]*/gi, " ")
-    .replace(/\b(?:q\.v\.|s\.v\.|and\s+so\s+on)\b[^.;]*/gi, " ")
-    .replace(/^[\s,;:()\-–—.]+/, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  // The first semicolon-delimited phrase is normally MW's shortest sense.
-  t = t.split(/[;.](?=\s|$)/)[0]?.trim() ?? "";
-  t = t.replace(/^[^A-Za-z]*|[^A-Za-z)\- ]*$/g, "").trim();
-  return /[A-Za-z]{2}/.test(t) ? clipGloss(t, max) : null;
+  return compactMwGloss(txt, max);
 }
 
 /** Short gloss used for repeat-suppression identity across group rows. */
 export function glossIdentity(txt: string): string {
-  return clipGloss(txt).toLowerCase();
+  return (compactMwGloss(txt, GLOSS_MAX_CHARS) ?? "").toLowerCase();
 }

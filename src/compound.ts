@@ -5,9 +5,10 @@
 //   Monier-Williams gloss of the member lemma (async; 「无词条」 when the
 //   shards have no entry).
 // Shared by the reader parse cards + side panel, and the lookup surfaces.
-import { fetchJSON, stripAccents, type Parse } from "./api";
+import { fetchJSON, loadGloss, stripAccents, type Parse } from "./api";
 import { slp1KeyFor, slp1KeyVariants } from "./translit";
-import { GLOSS_MAX_CHARS, compactGloss } from "./group";
+import { GLOSS_MAX_CHARS } from "./group";
+import { parseViewModel } from "./gloss";
 import { compactTagNode, isDevaStr, lemmaDualEl,
   parseDcsFeats } from "./feats";
 
@@ -94,6 +95,11 @@ export function mwGlossFor(lemma: string): Promise<string | null> {
   let p = glossMemo.get(key);
   if (!p) {
     p = (async () => {
+      // `loadGloss` owns the current dictionary-key normalization (including
+      // legitimate stem/headword variants). Do not reimplement it here.
+      const loaded = await loadGloss([lemma]).catch(() => new Map());
+      const exact = loaded.get(lemma) ?? loaded.get(stripAccents(lemma));
+      if (exact?.g) return exact.g;
       const letter = key[0]!;
       if (!/^[a-z]$/.test(letter)) return null;
       const shard = await glossShard(letter);
@@ -138,7 +144,7 @@ function memberRow(m: CompoundMember, idx: number, total: number): El {
       gl.remove(); // 无词条 → omit silently, never a loud placeholder
       return;
     }
-    const sense = compactGloss(g, 160);
+    const sense = parseViewModel({ l: m.l, p: m.p, f: m.f, x: "", g }).compactGloss;
     if (!sense) gl.remove();
     else gl.textContent = `— ${sense}`;
   });
@@ -195,7 +201,7 @@ export function attachMwGloss(
       g.remove();
       return;
     }
-    const sense = compactGloss(txt, maxChars);
+    const sense = parseViewModel({ l: lemma, p: "", f: "", x: "", g: txt }).compactGloss;
     if (!sense) g.remove();
     else g.textContent = `— ${sense}`;
   });

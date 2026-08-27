@@ -15,8 +15,9 @@ import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
 import { featTagEl, lemmaDualEl } from "./feats";
 import { groupHeadEl } from "./group-ui";
 import { MAX_VISIBLE_GROUPS, buildRankedGroups,
-  compactGloss, type ParseGroup } from "./group";
+  type ParseGroup } from "./group";
 import { compoundBlock, mwGlossFor } from "./compound";
+import { glossIdentity, parseViewModel } from "./gloss";
 
 type El = HTMLElement;
 const el = (tag: string, cls?: string, text?: string): El => {
@@ -102,10 +103,10 @@ function groupCardEl(g: ParseGroup): El {
 
 /** Paint group-card glosses in order; clip ≤120 chars; show repeats once. */
 function paintGroupCards(
-  cards: Array<{ card: El; lemma: string }>,
+  cards: Array<{ card: El; parse: Parse }>,
 ): void {
   void Promise.all(
-    cards.map((c) => mwGlossFor(c.lemma ?? "")),
+    cards.map(async (c) => c.parse.g ?? await mwGlossFor(c.parse.l ?? "")),
   ).then((txts) => {
     const seen = new Set<string>();
     cards.forEach((c, i) => {
@@ -116,9 +117,9 @@ function paintGroupCards(
         cell.remove();
         return;
       }
-      const sense = compactGloss(t);
+      const sense = parseViewModel({ ...c.parse, g: t ?? undefined }).compactGloss;
       if (!sense) { cell.remove(); return; }
-      const id = sense.toLowerCase();
+      const id = glossIdentity(sense);
       if (seen.has(id)) {
         cell.remove(); // identical gloss already shown above
         return;
@@ -192,7 +193,7 @@ async function run(
     const cards = visibleGroups.map((g) => {
       const card = groupCardEl(g);
       results.appendChild(card);
-      return { card, lemma: g.lemma };
+      return { card, parse: g.members[0]! };
     });
     paintGroupCards(cards);
     if (groups.length > MAX_VISIBLE_GROUPS) {
@@ -224,7 +225,7 @@ function lookupExpandChip(groups: ParseGroup[], nVisible: number):
     const cards = groups.slice(nVisible).map((g) => {
       const card = groupCardEl(g);
       list.insertBefore(card, chip);
-      return { card, lemma: g.lemma };
+      return { card, parse: g.members[0]! };
     });
     paintGroupCards(cards);
     chip.remove();
