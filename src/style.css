@@ -491,20 +491,39 @@ button.dev-active { font-weight: 600; }
   overflow-wrap: break-word;
 }
 
-/* compact analysis card (R1/R2): lemma + abbreviated inflection share one
-   row; the MW gloss line beneath is capped at two lines (full text lives in
-   the word panel). Long lemmas/glosses may wrap but never push width. */
-.pcard-compact .cand-head {
+/* compact analysis card — single line per token (sruta fix):
+   lemma + abbreviated inflection + gloss share ONE line (no vertical
+   stacking per token beyond the word↔parse pair). Gloss truncates with
+   ellipsis; full text lives in the word panel. */
+.pcard-compact {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pcard-compact .cand-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  flex: none;
 }
 .pcard-compact .lemma,
-.pcard-compact .feats,
-.gloss.mw-gloss {
+.pcard-compact .feats {
   overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+.pcard-compact .gloss.mw-gloss {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 /* merged same-token analyses (one compact row): primary candidate first,
    genuine alternates joined inline with a muted 「·」 separator; each
@@ -515,7 +534,6 @@ button.dev-active { font-weight: 600; }
 .pcard-merged .cand-seg .feats { display: inline; }
 .seg-sep { color: var(--muted); font-weight: 700; padding: 0 1px; }
 .gloss.seg-gloss { overflow-wrap: anywhere; }
-.pcard-compact .gloss.mw-gloss,
 .cand-row .gloss.mw-gloss {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1807,8 +1825,14 @@ body.vocab-highlight .greek-line .w.vk {
 }
 .unit-scripts .sline.iast-line.w,
 .unit-scripts .sline.iast-line {
-  font-size: 0.86em;
+  font-size: 1em;
+  color: var(--text);
+  font-weight: 600;
+}
+.unit-scripts .sline.deva-line {
+  font-size: 0.78em;
   color: var(--muted);
+  opacity: 0.9;
 }
 .unit-scripts .w {
   cursor: pointer;

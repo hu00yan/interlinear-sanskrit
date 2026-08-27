@@ -513,7 +513,10 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     return;
   }
   const expanded = expandedForms.has(key) && groups.length > 1;
-  const visible = expanded ? groups : groups.slice(0, COLLAPSED_ROWS);
+  // Strict one-parse-line per token: never stack multiple group rows vertically.
+  // Collapsed and expanded both show exactly one best row + chip; full paradigm
+  // lives in the word panel, not as a block pile under the token.
+  const visible = groups.slice(0, COLLAPSED_ROWS);
   const painted: Array<{ row: El; lemma: string }> = [];
   for (const g of visible) {
     const row = groupRow(g);
@@ -521,7 +524,7 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
     painted.push({ row, lemma: g.lemma });
   }
   paintGroupGlosses(painted);
-  if (!expanded && groups.length > COLLAPSED_ROWS) {
+  if (groups.length > COLLAPSED_ROWS) {
     col.appendChild(expandChip(
       word,
       groups.length - COLLAPSED_ROWS,
@@ -529,8 +532,8 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx): void {
       ctx,
     ));
   }
-  // samāsa block: on-demand detail only (greek parity) — never stacked
-  // under every token in the collapsed reading view.
+  // samāsa block: on-demand detail only — only when expanded, but still
+  // below the single parse line, not as a pile of candidates.
   if (expanded) {
     const comp = compoundFor(word, ctx);
     if (comp) col.appendChild(comp);

@@ -190,16 +190,15 @@ function rebuild(el: HTMLElement): void {
     return sp;
   };
   const rows: Array<{ on: boolean; cls: string }> = [
-    { on: prefs.deva, cls: "sline deva-line" },
     { on: prefs.iast, cls: "sline iast-line" },
+    { on: prefs.deva, cls: "sline deva-line" },
   ];
-  // Dual mode: each token's cell stacks deva-then-iast, keeping both scripts
-  // vertically paired per word while the whole line wraps naturally.
-  // Single mode: one script line per cell.
+  // Dual mode: each token's cell stacks IAST primary above, Devanagari
+  // secondary below (muted). Single mode: one script line per cell.
   let activeRows = forceIast
     ? rows.filter((r) => r.cls.includes("iast"))
     : rows.filter((r) => r.on);
-  if (!activeRows.length) activeRows = [rows[1]]; // pi + IAST pref off
+  if (!activeRows.length) activeRows = [rows[0]]; // pi + IAST pref off
   // Per-token CELLS: one inline-flex column per word, stacking this token's
   // active script lines (Devanagari above, IAST below). Cells flow inline
   // and WRAP at the viewport edge like ordinary text. The previous layout

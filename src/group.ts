@@ -45,6 +45,19 @@ export function normLemma(lemma: string): string {
     .replace(/ं/g, "म्");
 }
 
+/** Canonical group key — dedupes virama variants (श्रुत्/श्रुत) and
+ *  near-duplicate participle homographs. Display lemma stays verbatim;
+ *  grouping collapses only orthographic variants that share the same
+ *  SLP1 stem after stripping a trailing virama. Shard noise like
+ *  श्रुत् vs श्रुत is the target; distinct roots (श्रु vs स्रु) stay
+ *  separate so the participle prior can choose correctly. */
+export function canonicalGroupKey(lemma: string): string {
+  let k = normLemma(lemma);
+  // virama variant: श्रुत् (त्) → श्रुत (त)
+  if (k.endsWith("्")) k = k.slice(0, -1);
+  return k;
+}
+
 /** Coarse POS class of one analysis ("indecl" | noun | verb | part | other).
  *  DCS "part" is ambiguous in the shards: true participles carry tense/
  *  voice slots, while inflected particles/pronouns (क "पुं;1;एक") carry
@@ -227,6 +240,12 @@ export function groupSummaryAbbrs(g: ParseGroup): string[] {
  *  rows ("अ", "किम्") under content-word keys, and the blind +35 made them
  *  outrank the locally-curated reading. */
 export const INDECL_PRIOR = 35;
+/** Accusative boost for -am/-m surfaces — in -m-rich context an acc token
+ *  (e.g. श्रुतम्) must outrank nom/gen homographs. */
+export const ACC_PRIOR = 42;
+/** Participle boost: lemma śruta (pp. of śru) outranks noun śru "stream"
+ *  and sru "flow" when the surface matches the participle stem exactly. */
+export const PARTICIPLE_PRIOR = 34;
 /** Bonus when the analysis lemma IS the queried/surface form (contextual
  *  exact match — kills hyphen-homographs like ādin-deva under deva).
  *  DISABLED (gold-reconcile 2026-08-27): the +12 rewarded surface-as-lemma
@@ -355,6 +374,28 @@ export function parsePrior(p: Parse, opts: GroupRankOpts): number {
     s -= PROPER_NAME_PENALTY;
   }
   if (exactMatch) s += EXACT_FORM_PRIOR;
+  // ---- sruta fix: accusative boost for -am/-m surfaces + participle exact match ----
+  if (formDeva) {
+    const endsAm = (() => {
+      if (isDevanagari(rawForm)) return /म्$/.test(formDeva) || /ं$/.test(rawForm);
+      return /am$/i.test(rawForm) || /m$/i.test(rawForm);
+    })();
+    if (endsAm) {
+      const slots = featSlotsOf(p.f ?? "");
+      if (slots.kcase.has("acc.")) s += ACC_PRIOR;
+      // participle exact-stem match (śruta pp. vs śru/sru): stem without final म् equals lemma with त suffix
+      let stem = formDeva;
+      if (stem.endsWith("म्")) stem = stem.slice(0, -2);
+      else if (stem.endsWith("ं") || stem.endsWith("ः")) stem = stem.slice(0, -1);
+      if (stem) {
+        const stemNorm = normLemma(stem);
+        const lemmaNorm = normLemma(p.l ?? "");
+        if (stemNorm === lemmaNorm && /त्?$/.test((p.l ?? "").trim())) {
+          s += PARTICIPLE_PRIOR;
+        }
+      }
+    }
+  }
   return s;
 }
 
@@ -399,14 +440,47 @@ export function rankGroups(
  * Full pipeline for one token: deduped analyses -> groups -> ranked.
  * All-uninflected tokens collapse to a single dominant-lemma row (rule 2).
  */
+/** For participle -am surfaces (e.g. श्रुतम्) with both acc and nom
+ *  variants of the participle, prefer acc in m-rich context — neuter
+ *  nom/acc syncretism. Limit to participle lemmas (ending त/त्) so
+ *  ordinary nouns (धर्मम् etc.) keep both readings for gold fidelity. */
+function preferAccForAm(parses: Parse[], form?: string): Parse[] {
+  if (!form || !parses.length) return parses;
+  const isAm = isDevanagari(form) ? /म्$/.test(form) || /ं$/.test(form) : /am$/i.test(form) || /m$/i.test(form);
+  if (!isAm) return parses;
+  const hasAcc = parses.some((p) => featSlotsOf(p.f ?? "").kcase.has("acc."));
+  if (!hasAcc) return parses;
+  const accKeys = new Set<string>();
+  for (const p of parses) {
+    const s = featSlotsOf(p.f ?? "");
+    if (!s.kcase.has("acc.")) continue;
+    // only participle lemmas (श्रुत etc. ending त/त्)
+    if (!/त्?$/.test((p.l ?? "").trim())) continue;
+    const g = [...s.gender][0] ?? "";
+    const n = [...s.number][0] ?? "";
+    accKeys.add(`${normLemma(p.l ?? "")}\u0000${g}\u0000${n}`);
+  }
+  if (!accKeys.size) return parses;
+  return parses.filter((p) => {
+    const s = featSlotsOf(p.f ?? "");
+    if (!s.kcase.has("nom.")) return true;
+    if (!/त्?$/.test((p.l ?? "").trim())) return true;
+    const g = [...s.gender][0] ?? "";
+    const n = [...s.number][0] ?? "";
+    const key = `${normLemma(p.l ?? "")}\u0000${g}\u0000${n}`;
+    return !accKeys.has(key);
+  });
+}
+
 export function buildRankedGroups(
   parses: Parse[],
   opts: GroupRankOpts = {},
 ): ParseGroup[] {
   if (!parses.length) return [];
-  const groups = allUninflected(parses)
-    ? collapseIndeclToken(parses, opts.form)
-    : groupParses(parses);
+  const filtered = preferAccForAm(parses, opts.form);
+  const groups = allUninflected(filtered)
+    ? collapseIndeclToken(filtered, opts.form)
+    : groupParses(filtered);
   return rankGroups(groups, opts);
 }
 
