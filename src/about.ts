@@ -18,12 +18,21 @@ const el = (tag: string, cls?: string, text?: string): El => {
 const h2 = (t: string): El => el("h2", undefined, t);
 const p = (t: string): El => el("p", "about-p", t);
 const li = (t: string): El => el("li", undefined, t);
-/** Footer link back to the catalog — used by home + about. */
+/** Small footer navigation from the library to the About page. */
 export function aboutLink(): El {
   const a = el("a", "about-link") as HTMLAnchorElement;
-  a.href = "#/";
-  a.textContent = "← Back to the library";
+  a.href = "#/about";
+  a.textContent = "About · sources & licenses";
   return a;
+}
+
+function libraryBackLink(): El {
+  const pEl = el("p", "subtitle");
+  const back = el("a") as HTMLAnchorElement;
+  back.href = "#/";
+  back.textContent = "← Back to the library";
+  pEl.appendChild(back);
+  return pEl;
 }
 const aLink = (href: string, text: string): El => {
   const a = el("a") as HTMLAnchorElement;
@@ -222,6 +231,7 @@ export function renderAbout(app: HTMLElement): void {
     "with dictionary morphology and Monier-Williams glosses aligned under " +
     "every word, entirely from static JSON with no backend.",
   ));
+  app.appendChild(libraryBackLink());
   app.appendChild(repoBanner());
   app.appendChild(h2("Data sources & licenses"));
   app.appendChild(licenseList());
