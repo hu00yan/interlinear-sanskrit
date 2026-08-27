@@ -55,9 +55,8 @@ function licenseList(): El {
   ul.appendChild(liWithLinks([
     "Texts — ",
     aLink("https://gretil.sub.uni-goettingen.de/gretil.html", "GRETIL"),
-    " (Göttingen Register of Electronic Texts in Indian Languages, " +
-    "attribution license): Bhagavadgītā, the principal Upaniṣads and the " +
-    "Ṛgveda are ingested today; more works planned.",
+    " (Göttingen Register of Electronic Texts in Indian Languages): source " +
+    "text provenance for the Bhagavadgītā edition.",
   ]));
   ul.appendChild(liWithLinks([
     "Morphology — ",
@@ -74,14 +73,9 @@ function licenseList(): El {
     " project.",
   ]));
   ul.appendChild(liWithLinks([
-    "Translations — K. T. Telang, The Bhagavadgîtâ (Sacred Books of the " +
-    "East vol. 8, 1882) and Sir Edwin Arnold, The Song Celestial (1885); " +
-    "both public domain.",
-  ]));
-  ul.appendChild(liWithLinks([
-    "Sandhi / FST tooling (planned) — ",
-    aLink("https://github.com/samsaadhanii/scl", "Samsaadhanii"),
-    " (University of Hyderabad, GPLv2). Used at build time only.",
+    "Translations — K. T. Telang, The Bhagavadgîtâ (1882); E. B. Cowell, " +
+    "The Buddhacarita of Asvaghosha (1894); and Dharmakṣema's Chinese " +
+    "Buddhacarita. All are public domain.",
   ]));
   return ul;
 }
@@ -109,9 +103,6 @@ function techList(): El {
   ul.appendChild(li("Playwright end-to-end tests for every shipped feature."));
   ul.appendChild(li(
     "PWA offline support: the app shell and current corpus cache in the browser.",
-  ));
-  ul.appendChild(li(
-    "Bring-your-own-key LLM relay planned (/api passthrough, keys stay client-side).",
   ));
   return ul;
 }
@@ -227,9 +218,9 @@ export function renderAbout(app: HTMLElement): void {
   app.replaceChildren();
   app.appendChild(el("h1", undefined, "About Sanskrit Reader"));
   app.appendChild(p(
-    "An interlinear reading environment for Sanskrit — sandhi-split tokens " +
-    "with dictionary morphology and Monier-Williams glosses aligned under " +
-    "every word, entirely from static JSON with no backend.",
+    "A static interlinear reader for two Sanskrit editions whose displayed " +
+    "tokens are locked to contextual DCS morphology. It does not generate or " +
+    "guess analyses for unknown text.",
   ));
   app.appendChild(libraryBackLink());
   app.appendChild(repoBanner());

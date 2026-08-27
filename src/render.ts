@@ -17,7 +17,6 @@ import {
 } from "./group";
 import { attachMwGloss, compoundBlock, firstCompound, membersOf,
   mwGlossFor } from "./compound";
-import type { AnalyzeCandidate, AnalyzeResult } from "./parser-wasm";
 
 const glossShards = new Map<string, Record<string, Gloss> | null>();
 async function loadGlossShard(letter: string):
@@ -80,6 +79,8 @@ export interface RenderCtx {
   lang?: string;
   /** Non-null means inline grammar is occurrence-DCS only: no surface fallback. */
   occurrence?: OccurrenceMorph | null;
+  /** Inline DCS grammar is unavailable because this edition is not source-locked. */
+  grammarUnavailable?: boolean;
 }
 
 /* ---------------- parse ranking ---------------- */
@@ -366,17 +367,19 @@ export function mergeCtx(
 export async function prepare(
   units: Unit[],
   scope?: string,
+  grammarStatus?: string,
 ): Promise<RenderCtx> {
   const forms = units.flatMap((u) => u.words);
   const occurrence = await loadOccurrenceMorph(units, scope);
-  // A migrated work must never draw inline grammar from global surface shards.
-  const morph = occurrence ? new Map<string, Parse[]>() : await loadMorph(forms, scope);
+  // Reader grammar is contextual DCS only. Global morphology remains available
+  // to dictionary surfaces, never as an inline substitute for a source row.
+  const morph = new Map<string, Parse[]>();
   const lemmas: string[] = [];
   for (const w of new Set(forms)) {
     for (const p of morph.get(stripAccents(w)) ?? []) lemmas.push(p.l);
   }
   const gloss = await loadGloss(lemmas);
-  return { morph, gloss, occurrence };
+  return { morph, gloss, occurrence, grammarUnavailable: grammarStatus === "unavailable-source-mismatch" };
 }
 
 function parseCards(word: string, ctx: RenderCtx, ref?: string, tokenIndex?: number): El {
@@ -384,7 +387,11 @@ function parseCards(word: string, ctx: RenderCtx, ref?: string, tokenIndex?: num
   registerCol(stripAccents(word), col, word);
   const occurrence = ctx.occurrence && ref !== undefined && tokenIndex !== undefined
     ? ctx.occurrence.get(`${ref}\u0000${tokenIndex}`) ?? [] : undefined;
-  if (occurrence !== undefined) occurrenceByCol.set(col, occurrence);
+  if (occurrence !== undefined) {
+    occurrenceByCol.set(col, occurrence);
+    const sourceRow = occurrence[0]?.r;
+    if (sourceRow !== undefined) col.dataset.dcsRow = String(sourceRow);
+  }
   fillParseCol(col, word, ctx, occurrence);
   return col;
 }
@@ -509,16 +516,18 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx, occurrence?: Parse[
     // R4 honesty gate: NO parse card of any kind — the column stays empty
     // (it must still occupy its slot so cards align under their words);
     // the word remains clickable → dictionary panel.
-    appendDeepEntry(col, word); // wasm flag only — no-op otherwise
     return;
   }
 
   // GROUP by (lemma, POS-class) and rank with priors (kim/ka fix). Collapsed
   // density = greek-reader: ONE best group-row + chip; expansion (chip click
   // / word click / key E) reveals every group. Never a raw paradigm wall.
-  const groups = buildRankedGroups(parses, groupOpts(ctx, word));
+  // An occurrence row is already the authoritative contextual reading; ranking
+  // or grouping would reintroduce surface-candidate behavior.
+  const groups = occurrence !== undefined
+    ? [{ key: "occurrence", lemma: parses[0]!.l, cls: "other" as const, members: [parses[0]!] }]
+    : buildRankedGroups(parses, groupOpts(ctx, word));
   if (!groups.length) {
-    appendDeepEntry(col, word);
     return;
   }
   const expanded = expandedForms.has(key) && groups.length > 1;
@@ -533,7 +542,7 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx, occurrence?: Parse[
     painted.push({ row, lemma: g.lemma, gloss: g.members.find((p) => p.g)?.g });
   }
   paintGroupGlosses(painted);
-  if (groups.length > COLLAPSED_ROWS) {
+  if (occurrence === undefined && groups.length > COLLAPSED_ROWS) {
     col.appendChild(expandChip(
       word,
       groups.length - COLLAPSED_ROWS,
@@ -547,7 +556,6 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx, occurrence?: Parse[
     const comp = compoundFor(word, ctx);
     if (comp) col.appendChild(comp);
   }
-  appendDeepEntry(col, word); // wasm flag only — no-op otherwise
 }
 
 /** Compound-member mini-rows for this word: first PRIOR-RANKED parse that
@@ -557,287 +565,6 @@ function compoundFor(word: string, ctx: RenderCtx): El | null {
   const parses = ctx.morph.get(stripAccents(word)) ?? [];
   if (!parses.length) return null;
   return firstCompound(rankedParses(parses, groupOpts(ctx, word)));
-}
-
-/* ---------------- wasm deep parse (opt-in enhancement) ----------------
- * Client-side sandhi split + morphology via public/wasm/webdemo.wasm,
- * gated behind ?wasm=1 / localStorage wasmParser=1. Flag OFF ⇒ not even
- * the module chunk is fetched and fillParseCol output is byte-identical
- * to pre-wasm rendering. Any failure degrades silently back to the shard
- * path — the entry button removes itself rather than dead-ending.
- * KI-10 honesty fields (integration-guide §3.1) are read defensively:
- * artifacts older than W2c omit them, in which case no badge renders. */
-
-/** KI-10 fields on top of the typed facade (optional, may be absent). */
-type DeepCand = AnalyzeCandidate & {
-  level?: string;
-  attestation?: string[];
-  undetermined?: boolean;
-};
-
-function wasmFlagOn(): boolean {
-  try {
-    if (new URLSearchParams(location.search).has("wasm")) return true;
-    return localStorage.getItem("wasmParser") === "1";
-  } catch {
-    return false;
-  }
-}
-
-type WasmMod = typeof import("./parser-wasm");
-let wasmModPromise: Promise<WasmMod | null> | null = null;
-function wasmMod(): Promise<WasmMod | null> {
-  if (!wasmModPromise) {
-    wasmModPromise = import("./parser-wasm").catch(() => null);
-  }
-  return wasmModPromise;
-}
-
-/* Facade-first with a direct-load fallback (defense in depth). The kit's
- * static capability probe (parser-wasm.ts PROBE_BYTES) used to mis-encode its
- * type section and fail validate() everywhere; that probe is now FIXED (same
- * corrected sequence as moonbit-samsaadhanii/web/main.js), so the facade path
- * loads normally. This private loader stays as a belt-and-braces fallback in
- * case the facade module fails to import/init for any other reason. All
- * failures resolve false / null — never throw. */
-
-interface DeepExports {
-  analyze_word(deva: string): string;
-  morph_lookup(deva: string): string;
-}
-let deepExp: DeepExports | null = null;
-let deepInitPromise: Promise<boolean> | null = null;
-
-function deepInit(): Promise<boolean> {
-  if (!deepInitPromise) {
-    deepInitPromise = (async () => {
-      try {
-        const url = new URL("wasm/webdemo.wasm", document.baseURI).href;
-        const res = await fetch(url);
-        if (!res.ok) return false;
-        // arrayBuffer(), not instantiateStreaming: immune to wrong
-        // Content-Type (integration-guide §2)
-        const bytes = await res.arrayBuffer();
-        const inst3 = WebAssembly.instantiate as unknown as (
-          b: BufferSource,
-          i: WebAssembly.Imports,
-          o: { builtins: string[]; importedStringConstants: string },
-        ) => Promise<WebAssembly.WebAssemblyInstantiatedSource>;
-        const { instance } = await inst3(bytes, {}, {
-          builtins: ["js-string"],
-          importedStringConstants: "_",
-        });
-        const e = instance.exports as unknown as DeepExports;
-        if (typeof e.analyze_word !== "function") return false;
-        deepExp = e;
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-  }
-  return deepInitPromise;
-}
-
-async function deepReady(): Promise<boolean> {
-  const m = await wasmMod();
-  if (m && (await m.initParser())) return true; // facade healthy (post-fix)
-  return deepInit(); // private fallback loader
-}
-
-/** analyzeWord via the healthy path (facade or fallback); null ⇒ degrade. */
-async function deepAnalyze(deva: string): Promise<AnalyzeResult | null> {
-  if (!(await deepReady())) return null;
-  const m = await wasmMod();
-  const viaFacade = m ? m.analyzeWord(deva) : null;
-  if (viaFacade && viaFacade.candidates.length > 0) return viaFacade;
-  if (!deepExp) return viaFacade;
-  try {
-    const v = JSON.parse(deepExp.analyze_word(deva)) as AnalyzeResult | null;
-    if (!v || !Array.isArray(v.candidates)) return null;
-    return v.candidates.every((c) => c && Array.isArray(c.parts_deva) &&
-      Array.isArray(c.parts_iast))
-      ? v
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-interface MorphRow {
-  lemma_iast?: string;
-  lemma_deva?: string;
-  pos?: string;
-  feats?: string[];
-}
-
-/** morphLookup via the healthy path (facade or fallback). */
-async function deepMorph(
-  part: string,
-): Promise<{ found: boolean; rows: MorphRow[] } | null> {
-  if (!(await deepReady())) return null;
-  const m = await wasmMod();
-  const mr = m ? m.morphLookup(part) : null;
-  if (mr) {
-    return mr.found
-      ? { found: true, rows: mr.analyses }
-      : { found: false, rows: [] };
-  }
-  if (!deepExp) return null;
-  try {
-    const v = JSON.parse(deepExp.morph_lookup(part)) as
-      | { found?: boolean; analyses?: MorphRow[] }
-      | null;
-    if (!v || typeof v.found !== "boolean" || !Array.isArray(v.analyses)) {
-      return null;
-    }
-    return { found: v.found, rows: v.analyses };
-  } catch {
-    return null;
-  }
-}
-
-/** Idle-time warmup so the first click skips the ~80 ms cold start.
- *  Idempotent; a no-op unless the flag is on. */
-let wasmWarmed = false;
-function warmWasmParser(): void {
-  if (wasmWarmed || !wasmFlagOn()) return;
-  wasmWarmed = true;
-  const g = globalThis as {
-    requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
-  };
-  const kick = () => void wasmMod().then(() => deepReady()).catch(() => {});
-  if (typeof g.requestIdleCallback === "function") {
-    g.requestIdleCallback(kick, { timeout: 3000 });
-  } else {
-    setTimeout(kick, 200);
-  }
-}
-
-/** Devanagari form for the parser (tokens may ship as IAST); "" when the
- *  view has no Devanagari reality (Pali renders Roman-only). */
-function devaForm(word: string): string {
-  if (viewLang === "pi") return "";
-  return disp(word, "deva");
-}
-
-/** The per-word entry chip. Appends nothing when the flag is off or the
- *  view language can't feed the Devanagari parser. */
-function appendDeepEntry(col: El, word: string): void {
-  if (!wasmFlagOn() || viewLang === "pi") return;
-  warmWasmParser();
-  const b = el("button", "more-chip wasm-deep-btn", "深度解析") as HTMLButtonElement;
-  b.type = "button";
-  b.title = "Deep sandhi analysis (client-side wasm)";
-  b.setAttribute("aria-label", `Deep analysis of ${word}`);
-  b.addEventListener("click", () => void toggleDeep(col, word));
-  col.appendChild(b);
-}
-
-async function toggleDeep(col: El, word: string): Promise<void> {
-  const prev = col.querySelector(":scope > .wasm-deep");
-  if (prev) {
-    prev.remove(); // second click collapses
-    return;
-  }
-  const btn = col.querySelector(":scope > .wasm-deep-btn") as HTMLButtonElement | null;
-  const box = el("div", "pcard wasm-deep");
-  box.setAttribute("aria-live", "polite");
-  box.textContent = "…";
-  col.appendChild(box);
-  const deva = devaForm(word);
-  const res = deva ? await deepAnalyze(deva) : null;
-  if (!box.isConnected) return; // column re-rendered meanwhile
-  if (!res || res.candidates.length === 0) {
-    // 静默降级：撤除入口，回到既有 shard 路径，绝不阻塞
-    box.remove();
-    btn?.remove();
-    return;
-  }
-  box.replaceChildren(...deepChildren(res));
-}
-
-function deepChildren(res: AnalyzeResult): El[] {
-  const out: El[] = [];
-  for (const c of res.candidates as DeepCand[]) {
-    const row = el("div", "pcard cand-row wasm-cand");
-    const head = el("div", "cand-head");
-    // KI-10 undetermined → dashed frame + 「未裁定」ribbon
-    if (c.undetermined) {
-      row.style.borderTop = "none";
-      row.style.border = "1px dashed var(--border-strong)";
-      row.style.borderRadius = "var(--radius-s)";
-      row.style.padding = "4px 6px";
-      head.appendChild(el("span", "diff-badge", "未裁定"));
-    }
-    // KI-10 level Low → amber dot (spk0 adapts to both themes)
-    if (c.level === "Low" || c.level === "NoIdea") {
-      const dot = el("span");
-      dot.style.cssText =
-        "display:inline-block;width:8px;height:8px;border-radius:999px;background:var(--spk0,#b45309);flex:none;";
-      dot.title = `confidence ${c.level}`;
-      dot.setAttribute("aria-label", `confidence ${c.level}`);
-      head.appendChild(dot);
-    }
-    // candidate parts: clickable chips feeding morph_lookup
-    for (let j = 0; j < c.parts_deva.length; j++) {
-      if (j > 0) head.appendChild(el("span", undefined, "+"));
-      const part = elDisp("span", "lemma w wasm-part", c.parts_deva[j]);
-      part.title = `${c.parts_iast[j] ?? ""} — click for morphology`;
-      // KI-10 attestation ParadigmOnly → 「仅理论存在」corner tag
-      if (c.attestation && c.attestation[j] === "ParadigmOnly") {
-        const po = el("span", "diff-badge", "仅理论存在");
-        po.style.cssText = "font-size:0.56rem;padding:1px 3px;margin-left:2px;";
-        po.title = "ParadigmOnly — 形状合法但词库未见";
-        part.appendChild(po);
-      }
-      part.addEventListener("click", () =>
-        void toggleMorph(row, c.parts_deva[j] ?? "", c.parts_iast[j] ?? ""));
-      head.appendChild(part);
-    }
-    row.appendChild(head);
-    const hits = typeof c.hits === "number" ? c.hits : 0;
-    const members = typeof c.members === "number" ? c.members : c.parts_deva.length;
-    row.appendChild(el("div", "feats",
-      `hits ${hits}/${members}${res.total > res.candidates.length ? ` · of ${res.total}` : ""}`));
-    out.push(row);
-  }
-  return out;
-}
-
-/** Part-chip click: wasm morph_lookup inline (entry/drawer vocabulary),
- *  plus a jump into the existing lexicon drawer. */
-async function toggleMorph(row: El, partDeva: string, partIast: string): Promise<void> {
-  const prev = row.querySelector(":scope > .wasm-morph");
-  if (prev) {
-    prev.remove();
-    return;
-  }
-  const block = el("div", "wasm-morph");
-  block.style.marginTop = "4px";
-  block.textContent = "…";
-  row.appendChild(block);
-  const mr = await deepMorph(partDeva);
-  if (!block.isConnected) return;
-  block.replaceChildren();
-  const rows = (mr?.rows ?? []).filter((a) =>
-    a && typeof a.pos === "string" && Array.isArray(a.feats));
-  if (!mr || !mr.found || rows.length === 0) {
-    // honest miss — not an error
-    block.appendChild(el("div", "noparse", "morph 子集未收录"));
-    return;
-  }
-  for (const a of rows.slice(0, 4)) {
-    const entry = el("div", "entry");
-    entry.appendChild(elDisp("span", "lemma",
-      a.lemma_iast || a.lemma_deva || `(${a.pos})`));
-    entry.appendChild(el("div", "feats", [a.pos, ...(a.feats ?? [])].join(" · ")));
-    block.appendChild(entry);
-  }
-  const jump = el("button", undefined, "Lexicon ↗") as HTMLButtonElement;
-  jump.type = "button";
-  jump.addEventListener("click", () => openLexicon(partIast || devToIast(partDeva)));
-  block.appendChild(jump);
 }
 
 /** Render interlinear units into container.
@@ -922,8 +649,9 @@ const scripts = el("div", "unit-scripts greek-line");
       lang: ctx.lang,
       onWord: (i, sp) => {
         const w = unit.words[i];
-        openPanel(sp, w, ctx);
-        const parses = ctx.morph.get(stripAccents(w)) ?? [];
+        const parses = ctx.occurrence?.get(`${unit.ref}\u0000${i}`) ??
+          ctx.morph.get(stripAccents(w)) ?? [];
+        openPanel(sp, w, ctx, parses);
         if (parses.length > 1) toggleExpanded(w, ctx);
       },
     });
@@ -1424,7 +1152,7 @@ export function hidePanel(): void {
   document.querySelectorAll(".w.active").forEach((n) => n.classList.remove("active"));
 }
 
-function openPanel(span: El, word: string, ctx: RenderCtx): void {
+function openPanel(span: El, word: string, ctx: RenderCtx, contextual?: Parse[]): void {
   const p = ensurePanel();
   const body = p.querySelector(".panel-body") as El;
   body.replaceChildren();
@@ -1438,7 +1166,7 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
   h2.dataset.word = word;
   h2.appendChild(lemmaDualEl(word));
   body.appendChild(h2);
-  const parses = ctx.morph.get(stripAccents(word)) ?? [];
+  const parses = contextual ?? ctx.morph.get(stripAccents(word)) ?? [];
 
   // vocabulary book: mark/unmark this form (stores stripped key + best lemma)
   const stripped = stripAccents(word);

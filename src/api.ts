@@ -9,7 +9,14 @@
 //                                          "units":[{"ref","words"}]}
 import { fromBeta, toBeta } from "./betacode";
 import { parseDcsFeats, posAbbr } from "./feats";
-import { devToIast, surfaceKeyTrusted } from "./translit";
+import {
+  devToIast,
+  dictKeyForLemma,
+  dictKeysForLemma,
+  foldPaliNiggahita,
+  slp1KeyFor,
+  surfaceKeyTrusted,
+} from "./translit";
 
 export interface CatalogWork {
   id: string;
@@ -24,6 +31,11 @@ export interface CatalogWork {
   /** ISO 639 set tag; "pi" (Pali) routes under #/pali/ and skips the
    *  Devanagari display pipeline. Absent = Sanskrit ("sa"). */
   lang?: string;
+  /** DCS grammar is deliberately absent unless its displayed edition is source-locked. */
+  grammarStatus?: "source-locked" | "unavailable-source-mismatch";
+  /** Optional reader translation metadata. The sidebar needs only the static files. */
+  translation?: { files?: string[] } | null;
+  translationZh?: { files?: string[] } | null;
 }
 export interface CatalogAuthor {
   name: string;
@@ -113,6 +125,8 @@ export interface Parse {
   /** Curated occurrence provenance. Global dictionary shards omit this. */
   source?: "dcs";
   confidence?: number;
+  /** Immutable row offset in the source-locked DCS export. */
+  r?: number | string;
 }
 export type OccurrenceMorph = Map<string, Parse[]>;
 export interface Gloss {
@@ -163,10 +177,10 @@ export async function loadOccurrenceMorph(
   units: Unit[], workId?: string,
 ): Promise<OccurrenceMorph | null> {
   if (!workId) return null;
-  const index = await fetchJSON<{ source?: string; refs?: Record<string, string> }>(
+  const index = await fetchJSON<{ source?: string; edition?: string; refs?: Record<string, string> }>(
     `data/morph-occurrence/by-work/${workId}/index.json`,
   ).catch(() => null);
-  if (!index || index.source !== "dcs" || !index.refs) return null;
+  if (!index || index.source !== "dcs" || index.edition !== "dcs-source-locked" || !index.refs) return null;
   const names = new Set(units.map((u) => index.refs![u.ref]).filter(Boolean));
   const files = await Promise.all([...names].map((name) => fetchJSON<Record<string, Record<string, Parse[]>>>(
     `data/morph-occurrence/by-work/${workId}/${name}`,
@@ -371,23 +385,10 @@ function isCombining(c: string): boolean {
   return re.test(c);
 }
 
-function shardLetter(stripped: string): string | null {
-  const betaFirst = firstBetaLetter(stripped);
-  return /[a-z]/.test(betaFirst) ? betaFirst : null;
-}
-
-/** First char of the beta-code transliteration of a stripped greek word. */
-const BETA: Record<string, string> = {
-  α: "a", β: "b", γ: "g", δ: "d", ε: "e", ζ: "z", η: "h", θ: "q",
-  ι: "i", κ: "k", λ: "l", μ: "m", ν: "n", ξ: "c", ο: "o", π: "p",
-  ρ: "r", σ: "s", τ: "t", υ: "u", φ: "f", χ: "x", ψ: "y", ω: "w",
-};
-function firstBetaLetter(stripped: string): string {
-  for (const ch of stripped) {
-    const b = BETA[ch];
-    if (b) return b;
-  }
-  return "";
+// --- gloss shard helpers (Sanskrit MW) — proper SLP1 keying, not Greek beta ---
+function glossShardLetter(key: string): string | null {
+  const ch = key[0];
+  return ch && /^[a-z]$/.test(ch) ? ch : null;
 }
 
 async function loadShardMap<K, V>(
@@ -397,7 +398,7 @@ async function loadShardMap<K, V>(
 ): Promise<Map<string, V>> {
   const letters = new Set<string>();
   for (const k of keys) {
-    const l = shardLetter(keyOf(k));
+    const l = glossShardLetter(keyOf(k));
     if (l) letters.add(l);
   }
   await Promise.all(
@@ -407,7 +408,7 @@ async function loadShardMap<K, V>(
   );
   const out = new Map<string, V>();
   for (const k of keys) {
-    const l = shardLetter(keyOf(k));
+    const l = glossShardLetter(keyOf(k));
     if (!l) continue;
     const shard = (await fetchJSON<Record<string, V> | null>(
       `${dir}/${l}.json`,
@@ -418,12 +419,66 @@ async function loadShardMap<K, V>(
   return out;
 }
 
+// --- Pali morph-pali helpers ---
+type PaliSurfaceSlice = Record<string, string>;
+
+function paliInitial(form: string): string | null {
+  for (const ch of form.toLowerCase()) {
+    if (ch >= "a" && ch <= "z") return ch;
+  }
+  return null;
+}
+
+async function paliSurfaceKey(
+  form: string,
+  scope?: string,
+): Promise<string | null> {
+  // by-work slice is primary (small, work-specific)
+  if (scope !== undefined) {
+    const scoped = await fetchJSON<PaliSurfaceSlice | null>(
+      `data/morph-pali/_surface/by-work/${scope}.json`,
+    ).catch(() => null);
+    if (scoped) {
+      // strip provenance if present
+      const hit = (scoped as Record<string, string>)[form];
+      if (hit) return hit;
+      // if by-work exists but misses, fall through to letter slices —
+      // compound member heads like mūlāya are not work tokens
+    }
+  }
+  const initial = paliInitial(form);
+  if (!initial) return null;
+  const letters = await fetchJSON<PaliSurfaceSlice | null>(
+    `data/morph-pali/_surface/${initial}.json`,
+  ).catch(() => null);
+  return (letters as Record<string, string> | null)?.[form] ?? null;
+}
+
+async function paliShardForKey(key: string):
+  Promise<Record<string, Parse[]> | null> {
+  const l = key[0];
+  if (!l || !/^[a-z]$/.test(l)) return null;
+  const shard = await fetchJSON<Record<string, Parse[]> | null>(
+    `data/morph-pali/${l}.json`,
+  ).catch(() => null);
+  if (!shard) return null;
+  // strip provenance if present
+  const copy = { ...shard } as Record<string, unknown>;
+  delete (copy as Record<string, unknown>)["_provenance"];
+  return copy as Record<string, Parse[]>;
+}
+
 /** Analyses for surface forms, keyed by accent-stripped form.
  *
  * `scope` = catalog work id: resolves against that work's small per-work
  * slice (`_surface/by-work/<id>.json`) instead of the corpus-wide letter
  * slices. Absent/failed slice files degrade to letter slices (scope-less
  * callers, e.g. the lexicon box) and a miss is just "no parse".
+ *
+ * `lang` = "pi" selects the Pali DPD shards (morph-pali/**); otherwise the
+ * Sanskrit DCS shards (morph/**). When omitted the function auto-detects
+ * via catalogLang of the scoped work, but explicit is preferred for the
+ * reader's `prepare` path (task systematic fix).
  *
  * HONESTY GATE (R4): a resolved key counts ONLY when it is one of the
  * form's own canonical spellings (surfaceKeyTrusted). The build's surface
@@ -433,7 +488,16 @@ async function loadShardMap<K, V>(
 export async function loadMorph(
   forms: string[],
   scope?: string,
+  lang?: string,
 ): Promise<Map<string, Parse[]>> {
+  // Pali lane: DPD shards + niggahīta-folded keys
+  if (lang === "pi") return loadMorphPali(forms, scope);
+  // Heuristic: if scope looks like a Pali work id (pali-*) but caller
+  // omitted lang, still route to Pali so scope-less callers (tests) can
+  // be migrated incrementally without hardcoding per-page.
+  if (lang === undefined && scope !== undefined && scope.startsWith("pali-")) {
+    return loadMorphPali(forms, scope);
+  }
   const uniq = Array.from(new Set(forms));
   if (scope === undefined) {
     // warm every needed letter slice concurrently (fetchJSON dedupes) so
@@ -474,6 +538,46 @@ export async function loadMorph(
         if (folded !== form && !out.has(folded)) out.set(folded, parses);
         break;
       }
+    }
+  }
+  return out;
+}
+
+export async function loadMorphPali(
+  forms: string[],
+  scope?: string,
+): Promise<Map<string, Parse[]>> {
+  const uniq = Array.from(new Set(forms));
+  const out = new Map<string, Parse[]>();
+  // Warm per-work slice when scoped (small) — fetch dedupes
+  if (scope !== undefined) {
+    await fetchJSON(`data/morph-pali/_surface/by-work/${scope}.json`)
+      .catch(() => null);
+  } else {
+    // warm needed letter slices for scope-less callers
+    const initials = new Set<string>();
+    for (const f of uniq) {
+      const ini = paliInitial(f);
+      if (ini) initials.add(ini);
+    }
+    await Promise.all(
+      Array.from(initials, (ch) =>
+        fetchJSON(`data/morph-pali/_surface/${ch}.json`).catch(() => null),
+      ),
+    );
+  }
+  for (const form of uniq) {
+    const key = await paliSurfaceKey(form, scope);
+    if (!key) continue;
+    const shard = await paliShardForKey(key);
+    if (shard?.[key]?.length) {
+      const parses = dedupeParses(shard[key] as Parse[]);
+      out.set(form, parses);
+      const folded = stripAccents(foldPaliNiggahita(form));
+      if (folded !== form && !out.has(folded)) out.set(folded, parses);
+      // also publish niggahīta-folded key for Pali (ṃ/ṁ variants)
+      const nfold = foldPaliNiggahita(form);
+      if (nfold !== form && !out.has(nfold)) out.set(nfold, parses);
     }
   }
   return out;
@@ -529,10 +633,87 @@ export function dedupeParses(parses: Parse[]): Parse[] {
   return out;
 }
 
-/** Dictionary entries for lemma headwords, keyed by accent-stripped lemma. */
+/** Dictionary entries for lemma headwords, keyed by accent-stripped lemma.
+ *
+ *  FIXED: previous Greek-beta shardLetter path returned empty for Sanskrit
+ *  Devanagari lemmas, so ctx.gloss was always empty and proper-name
+ *  demotion never fired. Now uses the single unified dictKeyForLemma
+ *  (same function the shards were built with), + sibilant variants,
+ *  + hyphen-head and stem fallback via dictKeysForLemma — so the display
+ *  layer's ranking prior sees the same gloss the card will paint.
+ *
+ *  For Pali, the DPD gloss lives INLINE in the morph-pali shard (Parse.g)
+ *  and does NOT go through this MW map; callers check Parse.g directly.
+ *  This map stays MW-only (Sanskrit).
+ */
 export async function loadGloss(lemmas: string[]): Promise<Map<string, Gloss>> {
-  const stripped = Array.from(new Set(lemmas.map(stripAccents)));
-  return loadShardMap<never, Gloss>(stripped, "data/gloss", (s) => s);
+  // Build the SLP1 key -> gloss map using the unified dict key derivation
+  const keyToLemmas = new Map<string, string[]>(); // slp1 key -> original lemmas
+  for (const lemma of lemmas) {
+    const keys = dictKeysForLemma(lemma);
+    for (const k of keys) {
+      if (!keyToLemmas.has(k)) keyToLemmas.set(k, []);
+      keyToLemmas.get(k)!.push(lemma);
+    }
+    // also keep the raw stripped form for fallback identity (stripAccents)
+    const stripped = stripAccents(lemma);
+    if (stripped && stripped !== lemma) {
+      const sk = dictKeyForLemma(stripped);
+      if (sk && !keyToLemmas.has(sk)) keyToLemmas.set(sk, [lemma]);
+    }
+  }
+  const keys = Array.from(keyToLemmas.keys());
+  const byKey = await loadShardMap<string, Gloss>(keys, "data/gloss", (s) => s);
+  const out = new Map<string, Gloss>();
+  for (const lemma of lemmas) {
+    const stripped = stripAccents(lemma);
+    // prefer exact lemma key, then any fallback key that hit
+    const tryKeys = dictKeysForLemma(lemma);
+    let hit: Gloss | undefined;
+    for (const k of tryKeys) {
+      const g = byKey.get(k);
+      if (g) { hit = g as Gloss; break; }
+    }
+    // also try stripped variant
+    if (!hit && stripped !== lemma) {
+      const sk = dictKeyForLemma(stripped);
+      hit = sk ? (byKey.get(sk) as Gloss | undefined) : undefined;
+    }
+    if (hit) {
+      out.set(stripped, hit);
+      out.set(lemma, hit);
+    }
+  }
+  return out;
+}
+
+/**
+ * Unified gloss lookup for a single lemma (MW for sa, DPD-inline for pi
+ * falls back to MW). Uses dictKeysForLemma + shard fetch, with stem
+ * fallback (task: "if lemma misses dict, try stem without ending").
+ * Shared by paintGroupGlosses, compound members, and lexicon.
+ */
+export async function glossForLemma(
+  lemma: string,
+  lang?: string,
+): Promise<string | null> {
+  const norm = lemma ?? "";
+  if (!norm) return null;
+  // Pali INLINE gloss lives in the morph shard already; callers should
+  // prefer Parse.g directly. This helper is MW/D PD shard fetch for
+  // Sanskrit and for Pali member fallback via MW when DPD missing.
+  const keys = dictKeysForLemma(norm);
+  for (const k of keys) {
+    const l = k[0];
+    if (!l) continue;
+    const shard = await fetchJSON<Record<string, Gloss> | null>(
+      `data/gloss/${l}.json`,
+    ).catch(() => null);
+    if (!shard) continue;
+    const hit = (shard as Record<string, Gloss>)[k];
+    if (hit?.g) return hit.g;
+  }
+  return null;
 }
 
 /* ---------------- live analysis (optional Pages Function) ---------------- */

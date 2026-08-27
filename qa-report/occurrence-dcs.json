@@ -1,0 +1,184 @@
+[
+  {
+    "workId": "bhagavadgita",
+    "edition": "dcs-source-locked",
+    "source_files": ".cache-corpus/analysis.json",
+    "reader_tokens": 9927,
+    "aligned": 9927,
+    "alignment_pct": 100,
+    "emitted": 9927,
+    "excluded": null,
+    "omitted_unparsed_editorial_rows": [
+      {
+        "sourceIndex": 31,
+        "ref": "10.12",
+        "word": "(च)"
+      },
+      {
+        "sourceIndex": 62,
+        "ref": "10.13",
+        "word": "(च)"
+      },
+      {
+        "sourceIndex": 276,
+        "ref": "10.25",
+        "word": "(च)"
+      },
+      {
+        "sourceIndex": 377,
+        "ref": "10.31",
+        "word": "(अहम्)"
+      },
+      {
+        "sourceIndex": 387,
+        "ref": "10.32",
+        "word": "(अस्मि)"
+      },
+      {
+        "sourceIndex": 394,
+        "ref": "10.32",
+        "word": "(अस्मि)"
+      },
+      {
+        "sourceIndex": 427,
+        "ref": "10.34",
+        "word": "(अहम्)"
+      },
+      {
+        "sourceIndex": 1037,
+        "ref": "11.39",
+        "word": "च"
+      },
+      {
+        "sourceIndex": 1051,
+        "ref": "11.4",
+        "word": "प्रभो"
+      },
+      {
+        "sourceIndex": 1351,
+        "ref": "11.7",
+        "word": "च"
+      },
+      {
+        "sourceIndex": 1806,
+        "ref": "13.2",
+        "word": "च"
+      },
+      {
+        "sourceIndex": 2416,
+        "ref": "15.12",
+        "word": "(भासयते)"
+      },
+      {
+        "sourceIndex": 2425,
+        "ref": "15.12",
+        "word": "(त्वम्)"
+      },
+      {
+        "sourceIndex": 3377,
+        "ref": "18.10",
+        "word": "(च)"
+      },
+      {
+        "sourceIndex": 3696,
+        "ref": "18.31",
+        "word": "(मनुष्यः)"
+      },
+      {
+        "sourceIndex": 4090,
+        "ref": "18.58",
+        "word": "चेत्"
+      },
+      {
+        "sourceIndex": 4115,
+        "ref": "18.6",
+        "word": "तु"
+      },
+      {
+        "sourceIndex": 6059,
+        "ref": "2.55",
+        "word": "(इति)"
+      },
+      {
+        "sourceIndex": 6101,
+        "ref": "2.58",
+        "word": "(भवति)"
+      },
+      {
+        "sourceIndex": 6102,
+        "ref": "2.58",
+        "word": "(तदा)"
+      },
+      {
+        "sourceIndex": 6103,
+        "ref": "2.58",
+        "word": "(स्थापयति)"
+      },
+      {
+        "sourceIndex": 7050,
+        "ref": "4.16",
+        "word": "(अहम्)"
+      },
+      {
+        "sourceIndex": 7060,
+        "ref": "4.17",
+        "word": "(तत्त्वम्)"
+      },
+      {
+        "sourceIndex": 8305,
+        "ref": "6.34",
+        "word": "(च)"
+      },
+      {
+        "sourceIndex": 8319,
+        "ref": "6.35",
+        "word": "(च)"
+      },
+      {
+        "sourceIndex": 8320,
+        "ref": "6.35",
+        "word": "(भवति)"
+      },
+      {
+        "sourceIndex": 8334,
+        "ref": "6.36",
+        "word": "(अस्ति)"
+      },
+      {
+        "sourceIndex": 8469,
+        "ref": "6.46",
+        "word": "(मतः)"
+      },
+      {
+        "sourceIndex": 8474,
+        "ref": "6.46",
+        "word": "(योगी)"
+      },
+      {
+        "sourceIndex": 8479,
+        "ref": "6.46",
+        "word": "(मतः)"
+      },
+      {
+        "sourceIndex": 8729,
+        "ref": "7.19",
+        "word": "(च)"
+      },
+      {
+        "sourceIndex": 9498,
+        "ref": "9.15",
+        "word": "अपि"
+      }
+    ]
+  },
+  {
+    "workId": "buddhacarita",
+    "edition": "dcs-source-locked",
+    "source_files": "/Users/huyan00/mycode/interlinear-sanskrit/.cache-dcs/dcs-conllu/Buddhacarita",
+    "reader_tokens": 19065,
+    "aligned": 19065,
+    "alignment_pct": 100,
+    "emitted": 19065,
+    "excluded": null
+  }
+]

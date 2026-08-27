@@ -23,10 +23,11 @@ let activeTeardown: (() => void) | null = null;
 export function setupSidebar(work: CatalogWork, opts: {
   controls: El; getUnits: () => Unit[];
 }): SidebarHandle | null {
-  const enFiles = ((work as { translation?: { files?: unknown } }).translation?.files ?? [])
+  const enFiles = (work.translation?.files ?? [])
     .filter((f): f is string => typeof f === "string");
   const zhMeta = translationZhOf(work);
-  const zhFiles = (zhMeta?.files ?? []).filter((f): f is string => typeof f === "string");
+  const zhFiles = (Array.isArray(zhMeta?.files) ? zhMeta.files : [])
+    .filter((f: unknown): f is string => typeof f === "string");
   if (!enFiles.length && !zhFiles.length) return null;
 
   let open = false;

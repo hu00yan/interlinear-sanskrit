@@ -21,8 +21,7 @@
 // Pure data module (no DOM): callers build elements via feats.ts helpers.
 import { stripAccents, type Parse } from "./api";
 import { featSlotsOf } from "./feats";
-import { iastToDev, isDevanagari, slp1KeyFor } from "./translit";
-import { DCS_PREF, DCS_PREF_FULL } from "./dcs-pref";
+import { iastToDev, isDevanagari } from "./translit";
 import { compactGloss as compactMwGloss, type GlossEntries } from "./gloss";
 
 /** Visible collapsed group-rows per token (spec hard cap). */
@@ -137,34 +136,7 @@ export function collapseIndeclToken(parses: Parse[], form?: string): ParseGroup[
     const k = normLemma(p.l ?? "");
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
-  // DCS-curated preference: if this indecl token's surface has a DCS
-  // mode lemma among its candidates, that lemma must be the collapsed
-  // head — otherwise the frequency vote (अस्2×2 vs भू×1) would keep the
-  // wrong lemma on top for forms like भूत्वा (gold-reconcile).
-  // Boundary-aware: DCS lemma must not be strict prefix substring of form.
-  if (form) {
-    try {
-      const k = slp1KeyFor(isDevanagari(form) ? form : iastToDev(form));
-      const want = DCS_PREF[k];
-      if (want) {
-        const wantKey = slp1KeyFor(want);
-        if (!(wantKey.length !== k.length && k.startsWith(wantKey))) {
-          const wantNorm = normLemma(want);
-          const hit = parses.find((p) => normLemma(p.l ?? "") === wantNorm);
-          if (hit) {
-            return [{
-              key: `${wantNorm}\u0000merged-indecl`,
-              lemma: hit.l ?? "",
-              cls: "indecl",
-              members: parses.slice(),
-            }];
-          }
-        }
-      }
-      // Hyphen member DCS pref removed — head-substring fallback never
-      // collapses indecl tokens via member keys; compound route is Parse.m.
-    } catch { /* ignore */ }
-  }
+  void form;
   let best = parses[0]!;
   let bestN = -1;
   for (const p of parses) {
@@ -307,8 +279,6 @@ export interface GroupRankOpts {
  *  applies to an exact surface-form match: the reader looked THIS word up,
  *  so its own reading must not be penalised for its lemma's dictionary
  *  entry leading with a mythological sense (ka fix). */
-export const DCS_PREF_PRIOR = 90;
-
 export function parsePrior(p: Parse, opts: GroupRankOpts): number {
   let s = 0;
   const cls = posClassOf(p);
@@ -316,49 +286,6 @@ export function parsePrior(p: Parse, opts: GroupRankOpts): number {
   const rawForm = opts.form ?? "";
   const formDeva = rawForm ? (isDevanagari(rawForm) ? rawForm : iastToDev(rawForm)) : "";
   const formNorm = formDeva ? normLemma(formDeva) : "";
-  // DCS-curated lemma preference (gold-reconcile): if this surface's
-  // DCS mode lemma equals this candidate's lemma, boost heavily. The
-  // map was built from DCS CoNLL-U truth for the sampled works (11k keys)
-  // — correcting systematic ranking inversions where a frequent homograph
-  // (तद्, च) outranked the curated reading. Full-entry match (l+p+f)
-  // gets extra boost to prefer the exact DCS analysis over a same-lemma
-  // legacy variant with different POS/feats (e.g. स्यात् verb vs ptcp).
-  if (formDeva) {
-    try {
-      const check = (k: string) => {
-        const want = DCS_PREF[k];
-        if (want) {
-          // Boundary-aware: DCS pref lemma's slp1 must not be a strict
-          // prefix substring of the form's key — that would be head-only
-          // spill-over (e.g. srutam->sru). Require length equality or
-          // non-prefix.
-          const wantKey = slp1KeyFor(want);
-          if (wantKey.length !== k.length && k.startsWith(wantKey)) return;
-          if (normLemma(want) === normLemma(p.l ?? "")) s += DCS_PREF_PRIOR;
-        }
-        const full = DCS_PREF_FULL[k] as { l: string; p: string; f: string } | undefined;
-        if (full && normLemma(full.l) === normLemma(p.l ?? "")) {
-          const wantKey2 = slp1KeyFor(full.l);
-          if (wantKey2.length !== k.length && k.startsWith(wantKey2)) return;
-          if ((full.p ?? "").trim() === (p.p ?? "").trim()) s += 30;
-          // core feats overlap bonus: if candidate's f contains the DCS f's core tags
-          const dcsF = full.f ?? "";
-          const candF = p.f ?? "";
-          if (dcsF && candF) {
-            const dcsParts = new Set(dcsF.split(/[;\s|]+/).filter(Boolean));
-            const candParts = new Set(candF.split(/[;\s|]+/).filter(Boolean));
-            let overlap = 0;
-            for (const t of dcsParts) if (candParts.has(t)) overlap++;
-            if (overlap && overlap === dcsParts.size) s += 20;
-          }
-        }
-      };
-      check(slp1KeyFor(formDeva));
-      // Hyphen member DCS pref fallback removed — member-chain path via
-      // Parse.m is the only compound route; head-substring shard lookup
-      // is never boost-eligible.
-    } catch { /* ignore */ }
-  }
   if (cls === "indecl") {
     // shape-gated: unrelated particle bucket-mates (folded keys) must not
     // steal the +35 when their lemma bears no resemblance to the queried

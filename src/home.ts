@@ -3,15 +3,11 @@
 // titles (stripAccents passes Devanagari through untouched, so both IAST
 // and Devanagari queries reach the same normalized titles). "/" focuses
 // the search box.
-// Two sections share this view: Sanskrit (root) and Pali (#/pali/). A
-// compact संस्कृत | पालि toggle next to the title switches between them;
-// each section lists only its own language's works.
 import {
   catalogLang, fetchJSON, isUntranslated, loadCatalog, normSa, stripAccents,
   workRoute, zhNameOf, zhTitleOf,
   type CatalogAuthor, type CatalogWork,
 } from "./api";
-import { wordLookupWidget } from "./lookup";
 import { lexiconButton } from "./lexicon";
 import { themeControl } from "./theme";
 import { aboutLink } from "./about";
@@ -25,32 +21,6 @@ const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   if (text !== undefined) e.textContent = text; // never innerHTML
   return e;
 };
-
-/** Compact bilingual संस्कृत/Sanskrit ⇄ पालि/Pāli switch beside the site
- *  title: Devanagari primary with a small Latin sublabel beneath — each
- *  segment readable in either script, still compact on phones. */
-function langToggle(paliActive: boolean): HTMLElement {
-  const nav = el("nav", "lang-toggle");
-  nav.setAttribute("aria-label", "Language section");
-  const mk = (
-    href: string,
-    deva: string,
-    latin: string,
-    active: boolean,
-  ) => {
-    const a = el("a", active ? "lang-btn active" : "lang-btn") as HTMLAnchorElement;
-    a.href = href;
-    const d = el("span", "lang-btn-deva", deva);
-    const l = el("span", "lang-btn-latin", latin);
-    l.lang = "en";
-    a.append(d, l);
-    if (active) a.setAttribute("aria-current", "page");
-    return a;
-  };
-  nav.appendChild(mk("#/", "संस्कृत", "Sanskrit", !paliActive));
-  nav.appendChild(mk("#/pali/", "पालि", "Pāli", paliActive));
-  return nav;
-}
 
 /** Bilingual title pair for a work link / card: titleZh (when the catalog
  *  ships it) is primary — larger, lang="zh" — with the original small and
@@ -96,23 +66,17 @@ function authorHeading(author: CatalogAuthor): HTMLElement {
   return head;
 }
 
-export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void {
-  const isPali = section === "pi";
+export function renderHome(app: HTMLElement, _section: HomeSection = "sa"): void {
   app.replaceChildren();
 
-  // ---- header row: site title + language toggle ----
+  // ---- header row ----
   const head = el("div", "home-head");
-  head.appendChild(el("h1", undefined, isPali ? "Pali Reader" : "Sanskrit Reader"));
-  head.appendChild(langToggle(isPali));
+  head.appendChild(el("h1", undefined, "Sanskrit Reader"));
   app.appendChild(head);
   app.appendChild(
-    el("p", "subtitle", isPali
-      ? "An interlinear reading environment for the Pali Canon — " +
-        "Roman-script Pali with Sujato's English translation, " +
-        "segment-aligned, all static JSON."
-      : "An interlinear reading environment for Sanskrit — every word " +
-        "carries its grammatical analysis and an English gloss, all " +
-        "static JSON."),
+    el("p", "subtitle",
+      "Two source-locked Sanskrit editions with contextual DCS morphology " +
+      "and aligned public-domain translations."),
   );
 
   // ---- prominent search box + header controls ----
@@ -137,8 +101,7 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
 
   // ---- muted start-here line (linked to its work once the catalog loads;
   // main.ts inserts the "Continue reading" section before .starters) ----
-  const starters = el("p", "starters",
-    isPali ? "Start with the Dhammapada." : "Start with the Bhagavad Gītā.");
+  const starters = el("p", "starters", "Start with the Bhagavad Gītā.");
   app.appendChild(starters);
 
   // "/" focuses search (until the home view is torn down)
@@ -164,17 +127,6 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
   count.setAttribute("aria-live", "polite");
   app.appendChild(count);
 
-  // ---- word-lookup box (the slot above the footer) ----
-  // Ported from greek-reader, where this spot held the parser entry card.
-  // The old static start-here work card (rendered "薄伽梵歌"/Bhagavadgītā)
-  // ceded its place: type any Sanskrit/Pali word — Devanagari or IAST — and
-  // morph parse cards + Monier-Williams entries appear right here, no
-  // navigation. The start-here suggestion stays available as a link in the
-  // .starters line (wired to the catalog below).
-  const cards = el("div", "cards");
-  cards.appendChild(wordLookupWidget());
-  app.appendChild(cards);
-
   // footer: about / sources & licenses
   const footer = el("p", "about-footer");
   footer.appendChild(aboutLink());
@@ -183,7 +135,7 @@ export function renderHome(app: HTMLElement, section: HomeSection = "sa"): void 
   // ---- catalog: only this section's language reaches the page ----
   loadCatalog().then((catalog) => {
     const inSection = (w: CatalogWork, a: CatalogAuthor): boolean =>
-      isPali ? catalogLang(w, a) === "pi" : catalogLang(w, a) !== "pi";
+      catalogLang(w, a) !== "pi";
     const authors = [...catalog.authors]
       .map((a) => ({
         author: a,

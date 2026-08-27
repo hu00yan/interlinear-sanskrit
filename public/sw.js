@@ -1,4 +1,4 @@
-// Greek Reader service worker: offline-first app shell + data shards.
+// Sanskrit Reader service worker: offline-first app shell + data shards.
 //
 // Strategy: stale-while-revalidate for same-origin GET requests
 //   - answer from cache immediately, refresh in the background
@@ -7,13 +7,14 @@
 //     insertion-order trim keeps it around 300 entries (LRU-ish)
 //   - navigation requests fall back to the cached shell when offline
 
-const CACHE = "greek-reader-v2";
+const CACHE = "sanskrit-reader-v1";
 const MAX_ENTRIES = 300;
 
-// Precached at install for offline use; fetched lazily in-app only on first 🔊 click (dynamic import + fetch).
+// Precache only the app shell. Text, translation, and analysis shards are
+// cached after the reader requests them.
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(["/", "/index.html", "/espeak-ng.wasm"]).catch(() => {}))
+    caches.open(CACHE).then((c) => c.addAll(["/", "/index.html"]).catch(() => {}))
       .then(() => self.skipWaiting()),
   );
 });

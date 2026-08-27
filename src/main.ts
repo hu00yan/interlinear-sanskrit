@@ -408,20 +408,20 @@ async function loadNextPage(state: ReaderState): Promise<void> {
     const scope = catalogLang(state.work, state.author) === "pi"
       ? undefined
       : state.work.id;
-    const freshCtx = await prepare(batch, scope);
+    const freshCtx = await prepare(batch, scope, state.work.grammarStatus);
+    if (freshCtx.occurrence) {
+      state.ctx.occurrence ??= new Map();
+      for (const [key, parses] of freshCtx.occurrence) state.ctx.occurrence.set(key, parses);
+    }
     mergeCtx(state.ctx, freshCtx.morph, freshCtx.gloss);
-    // Honesty gate: only exact surface-key analyses render. Say so ONCE
-    // whenever fewer than half of this page's distinct forms have analyses.
+    // A non-source-locked edition deliberately has no inline grammar.
     if (!state.morphNoteDone) {
       state.morphNoteDone = true;
-      const forms = new Set(batch.flatMap((u) => u.words));
-      const covered = [...forms]
-        .filter((f) => (freshCtx.morph.get(f)?.length ?? 0) > 0).length;
-      if (forms.size > 0 && covered / forms.size < 0.5) {
+      if (state.work.grammarStatus === "unavailable-source-mismatch") {
         state.body.appendChild(el(
           "div",
           "morph-empty-note",
-          "本卷逐词语法解析覆盖有限：仅当词形在语料库中有精确对应解析时才显示解析卡（不猜测、不类推），未覆盖的词下方留空。点击任意单词仍可查询词典。",
+          "本卷不显示逐词语法卡：当前版本未与上下文 DCS 原文逐词锁定。词典查询仍可用。",
         ));
       }
     }

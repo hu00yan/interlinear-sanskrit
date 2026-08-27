@@ -333,6 +333,121 @@ export function slp1KeyVariants(key: string): string[] {
   return [...variants];
 }
 
+/** Pali niggahīta fold: corpus writes ṁ (U+1E41), DPD writes ṃ (U+1E43).
+ *  Both map to ṃ before SLP1 so keys meet — mirrors pipeline
+ *  stages/50-analyze/pali_dpd.py canon_key fold_niggahita. */
+export function foldPaliNiggahita(s: string): string {
+  return s.replace(/\u1e41/g, "\u1e43");
+}
+
+/**
+ * Single-source lemma normalization for dictionary lookup (SA + PI):
+ *  - strip bracket/paren noise
+ *  - strip DCS homonym digits (दृश्1 -> दृश्)
+ *  - strip surrounding hyphens/spaces
+ *  Used by BOTH gloss-join (pipeline) and frontend gloss lookup so
+ *  keys meet exactly (task "single function used both sides").
+ */
+export function normalizeLemmaForDict(lemma: string): string {
+  let s = (lemma ?? "").trim();
+  s = s.replace(/^[(\[]+/, "").replace(/[)\]]+$/, "");
+  // hyphen cleanup: keep internal hyphens for compound detection but trim edges
+  s = s.replace(/^-+/, "").replace(/-+$/, "");
+  // DCS homonym digits: trailing digits after a non-digit
+  s = s.replace(/^(.*\D)\d+$/, "$1");
+  // stray visarga/virama normalisation is handled by transliteration,
+  // but strip zero-width joiners that sometimes ship in shard lemmas
+  s = s.replace(/[\u200c\u200d]/g, "");
+  return s;
+}
+
+/**
+ * Canonical dictionary shard key for a lemma headword (SA MW or PI DPD
+ * share the same SLP1-lowercase key space). Applies normalizeLemmaForDict
+ * + Pali niggahīta fold before SLP1, so callers never need to remember
+ * the pre-processing.
+ */
+export function dictKeyForLemma(lemma: string): string {
+  const norm = normalizeLemmaForDict(lemma);
+  if (!norm) return "";
+  const folded = foldPaliNiggahita(norm);
+  return slp1KeyFor(folded);
+}
+
+/**
+ * All dict keys to try for one lemma, in priority order:
+ * 0) exact normalized key
+ * 1) sibilant-mirrored variants
+ * 2) hyphen-head fallback (last member of compounds)
+ * 3) stem-without-ending fallbacks (strip 1-2 chars for BHS / inflected lemmas)
+ * 4) sans-virama/visarga/anusvāra stripped variant
+ */
+export function dictKeysForLemma(lemma: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (k: string): void => {
+    if (!k || seen.has(k) || !/^[a-z~]+$/.test(k)) return;
+    seen.add(k);
+    out.push(k);
+  };
+  const base = dictKeyForLemma(lemma);
+  if (base) {
+    push(base);
+    for (const v of slp1KeyVariants(base)) push(v);
+  }
+  const norm = normalizeLemmaForDict(lemma);
+  // hyphen compound: head is last member (samāsa head carries meaning)
+  if (norm.includes("-")) {
+    const parts = norm.split("-").map((p) => p.trim()).filter(Boolean);
+    const head = parts[parts.length - 1];
+    if (head && head !== norm) {
+      const hk = dictKeyForLemma(head);
+      if (hk) {
+        push(hk);
+        for (const v of slp1KeyVariants(hk)) push(v);
+      }
+    }
+    // also try each member (for debugging BHS)
+    for (const p of parts) {
+      if (p === head) continue;
+      const pk = dictKeyForLemma(p);
+      if (pk) push(pk);
+    }
+  }
+  // visarga / anusvāra / virama stripped fallback (Sanskrit BHS lemmas etc.)
+  const visargaStripped = norm.replace(/[ःं]$/g, "").replace(/्$/g, "");
+  if (visargaStripped !== norm) {
+    const vk = dictKeyForLemma(visargaStripped);
+    if (vk) {
+      push(vk);
+      for (const v of slp1KeyVariants(vk)) push(v);
+    }
+  }
+  // anusvāra visarga sandhi: ः -> स्, ं -> म् (normLemma in group.ts does this for grouping)
+  const sandhi = norm.replace(/ः/g, "स्").replace(/ं/g, "म्");
+  if (sandhi !== norm) {
+    const sk = dictKeyForLemma(sandhi);
+    if (sk && sk !== base) {
+      push(sk);
+      for (const v of slp1KeyVariants(sk)) push(v);
+    }
+  }
+  // stem-without-ending: strip last 1-2 chars (fallback for BHS inflected lemmas
+  // like अवस्थातुम् where MW headword is अवस्था, or Pali inflected lemmas)
+  if (norm.length >= 4) {
+    for (const cut of [1, 2]) {
+      const stem = norm.slice(0, -cut);
+      if (stem.length < 3) continue;
+      const stemKey = dictKeyForLemma(stem);
+      if (stemKey) {
+        push(stemKey);
+        for (const v of slp1KeyVariants(stemKey)) push(v);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * ALL valid shard-key spellings of one surface form — client mirror of
  * pipeline/build_morph_dcs.py _canonical_keys(). Devanagari and roman

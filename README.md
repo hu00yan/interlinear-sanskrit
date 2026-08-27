@@ -1,14 +1,40 @@
 # interlinear-sanskrit
 
-Sister project to [greek-reader](https://github.com/hu00yan/greek-reader): an
-interlinear reading environment for Sanskrit, reusing the same architecture —
-build-time morphological precompute (sandhi splitting + inflectional analysis
-frozen into static JSON shards) served by a dependency-free static frontend.
-Initial scope: the Bhagavadgītā first, then the principal Upaniṣads, then
-Ṛgveda maṇḍala 1–10 via padapāṭha↔saṃhitāpāṭha alignment. Feasibility was
-assessed in a per-layer research study (sandhi segmentation, DCS-based
-morphology, GRETIL texts, Monier-Williams/Apte dictionaries, public-domain
-translations); see `qa-report/` in the greek-reader repository
-(`sanskrit-feasibility.md`, `fst-spike.md`) for the evidence base.
+A static interlinear reader for two Sanskrit works whose displayed editions
+are locked to their contextual Digital Corpus of Sanskrit analyses:
 
-**Status: research phase — no pipeline or frontend code yet.**
+- **Bhagavadgītā** — Sanskrit, occurrence-level morphology, and K. T. Telang's
+  1882 English translation
+- **Buddhacarita** — Sanskrit, occurrence-level morphology, E. B. Cowell's
+  1894 English translation, and Dharmakṣema's Chinese translation
+
+The reader deliberately does not guess analyses for other editions or unknown
+text. Each displayed grammar row is addressed by work, passage reference, and
+token index and carries its immutable DCS source identifier.
+
+## Run
+
+```bash
+npm install
+npm run dev
+```
+
+Then open the URL printed by Vite.
+
+## Verify
+
+```bash
+npm run build
+node tests/occurrence-dcs-verify.mjs
+npx playwright test tests/source-locked-dcs.spec.ts
+```
+
+## Data
+
+- Morphology: Digital Corpus of Sanskrit / Oliver Hellwig, CC BY 4.0
+- Bhagavadgītā contextual analysis: Samsaadhanii/SCL export, GPL-2.0
+- English translations: public domain
+- Buddhacarita Chinese translation: public domain
+- Dictionary: Monier-Williams (1899), public domain, Cologne digitization
+
+See `qa-report/source-locked-dcs.md` for the source-lock boundary.
