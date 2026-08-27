@@ -513,6 +513,29 @@ export function clipGloss(txt: string, max = GLOSS_MAX_CHARS): string {
   return (sp > max / 2 ? slice.slice(0, sp) : slice) + "…";
 }
 
+/**
+ * A compact, reader-facing dictionary sense. MW entries are scholarly source
+ * quotations, not inline glosses: remove markup, labels and citation tails,
+ * then retain the first usable English sense. The unedited quotation remains
+ * available in the word-detail dictionary section.
+ */
+export function compactGloss(txt: string, max = GLOSS_MAX_CHARS): string | null {
+  let t = (txt ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/[\u0900-\u097f\u3400-\u9fff]/g, " ")
+    .replace(/\b(?:m|f|n|mf|ind|pron|nom|acc|dat|abl|gen|loc|voc|sg|du|pl|cf|see)\.?\b/gi, " ")
+    .replace(/\b(?:RV|AV|VS|TS|ŚBr|ŚB|MBh|R|Pāṇ|Pāṇini)\.?\s*[\d.,;:()\-–—]*/gi, " ")
+    .replace(/\b(?:q\.v\.|s\.v\.|and\s+so\s+on)\b[^.;]*/gi, " ")
+    .replace(/^[\s,;:()\-–—.]+/, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // The first semicolon-delimited phrase is normally MW's shortest sense.
+  t = t.split(/[;.](?=\s|$)/)[0]?.trim() ?? "";
+  t = t.replace(/^[^A-Za-z]*|[^A-Za-z)\- ]*$/g, "").trim();
+  return /[A-Za-z]{2}/.test(t) ? clipGloss(t, max) : null;
+}
+
 /** Short gloss used for repeat-suppression identity across group rows. */
 export function glossIdentity(txt: string): string {
   return clipGloss(txt).toLowerCase();

@@ -13,7 +13,7 @@ import { compactFeatsEl, compactTagNode, lemmaDualEl,
 import { groupHeadEl } from "./group-ui";
 import {
   GLOSS_MAX_CHARS, buildRankedGroups,
-  clipGloss, glossIdentity, normLemma, rankedParses, type ParseGroup,
+  compactGloss, glossIdentity, normLemma, rankedParses, type ParseGroup,
 } from "./group";
 import { attachMwGloss, compoundBlock, firstCompound, membersOf,
   mwGlossFor } from "./compound";
@@ -435,9 +435,9 @@ function groupRow(g: ParseGroup): El {
  * (spec 4), suppressed entirely when an earlier row already showed the
  * identical gloss. 无词条 → cell removed silently (R3).
  */
-function paintGroupGlosses(items: Array<{ row: El; lemma: string }>): void {
+function paintGroupGlosses(items: Array<{ row: El; lemma: string; gloss?: string }>): void {
   void Promise.all(
-    items.map((it) => mwGlossFor(it.lemma ?? "")),
+    items.map(async (it) => compactGloss(it.gloss ?? "") ?? compactGloss(await mwGlossFor(it.lemma ?? "") ?? "")),
   ).then((txts) => {
     const seen = new Set<string>();
     items.forEach((it, i) => {
@@ -454,7 +454,7 @@ function paintGroupGlosses(items: Array<{ row: El; lemma: string }>): void {
         return;
       }
       seen.add(id);
-      cell.textContent = clipGloss(t, GLOSS_MAX_CHARS);
+      cell.textContent = `— ${t}`;
     });
   });
 }
@@ -526,11 +526,11 @@ function fillParseCol(col: El, word: string, ctx: RenderCtx, occurrence?: Parse[
   // Collapsed and expanded both show exactly one best row + chip; full paradigm
   // lives in the word panel, not as a block pile under the token.
   const visible = groups.slice(0, COLLAPSED_ROWS);
-  const painted: Array<{ row: El; lemma: string }> = [];
+  const painted: Array<{ row: El; lemma: string; gloss?: string }> = [];
   for (const g of visible) {
     const row = groupRow(g);
     col.appendChild(row);
-    painted.push({ row, lemma: g.lemma });
+    painted.push({ row, lemma: g.lemma, gloss: g.members.find((p) => p.g)?.g });
   }
   paintGroupGlosses(painted);
   if (groups.length > COLLAPSED_ROWS) {
@@ -1515,6 +1515,10 @@ function openPanel(span: El, word: string, ctx: RenderCtx): void {
       entry.appendChild(el("div", "dict-gloss", d.g));
       body.appendChild(entry);
     }
+  } else if (parses.length) {
+    // A missing sense is useful only after the reader asks for detail; never
+    // turn every unresolved inline card into diagnostic noise.
+    body.appendChild(el("p", "word-form", "Gloss unavailable."));
   }
 
   // deep-link into the lexicon drawer, prefilled with the best-ranked

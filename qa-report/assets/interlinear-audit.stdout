@@ -1,0 +1,8 @@
+file:///Users/huyan00/mycode/interlinear-sanskrit/tests/interlinear-audit.mjs:83
+if (failures.length) throw new Error(failures.join("\n"));
+                           ^
+
+Error: BhG gloss rate 87.6% is below 90%; missing: pāṇḍava-anīkaपाण्डव-अनीक, tvadत्वद्, narapumgavaनरपुम्गव, draupadeyaद्रौपदेय, viśiṣṭāविशिष्टा, dvijottamaद्विजोत्तम, jīvitāजीविता, nānā-śastra-praharaṇaनाना-शस्त्र-प्रहरण, bhīṣma-abhirakṣitaभीष्म-अभिरक्षित, bhīma-abhirakṣitaभीम-अभिरक्षित, saṃjanayसंजनय्, kuruvṛddhaकुरुवृद्ध, gomukhāगोमुखा, pradadhmatuḥप्रदध्मतुः, bhīma-karmāभीम-कर्मा, sughoṣa-maṇipuṣpakaसुघोष-मणिपुष्पक, draupadeyaद्रौपदेय, dhmāध्मा, vyadārayatव्यदारयत्, vyanunādayanव्यनुनादयन्, kapidhvajaकपिध्वज, śastra-sampātaशस्त्र-सम्पात, mahī-pataमही-पत, ubhayaउभय, sthāpayस्थापय्, yotsyamānānयोत्स्यमानान्, priya-cikīrṣuप्रिय-चिकीर्षु, ubhayaउभय, bhīṣma-droṇa-pramukhataभीष्म-द्रोण-प्रमुखत, bhrātṛभ्रातृ, ubhayaउभय, viṣīdanविषीदन्, dṛṣदृष्, svajanaस्वजन, sīdatसीदत्, pariśuṣपरिशुष्, romaharṣaरोमहर्ष, gāṇḍīvaगाण्डीव, sraṃsस्रंस्, paridahyateपरिदह्यते, sakसक्, bhramभ्रम्
+    at file:///Users/huyan00/mycode/interlinear-sanskrit/tests/interlinear-audit.mjs:83:28
+
+Node.js v26.5.0

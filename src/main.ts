@@ -13,7 +13,6 @@ import {
   genreFor, hidePanel, mergeCtx, prepare, renderControls, renderUnits,
   tallyLemmas, type RenderCtx,
 } from "./render";
-import { openTranslation } from "./translation";
 import { attachDrawerResize, initDrawerWidth } from "./drawer-resize";
 import { lexiconButton } from "./lexicon";
 import { renderAbout, aboutLink } from "./about";
@@ -23,7 +22,6 @@ import {
   continueReadingSection, getFocusedRef, getRecent, saveRecent,
   setFocusedRef, setUnitContext,
 } from "./bookmarks";
-import { setupTranslationLayer, type TlLayerHandle } from "./zh-layer";
 import { setupSidebar, teardownSidebar, type SidebarHandle } from "./sidebar";
 import "./script-display";
 
@@ -200,9 +198,6 @@ interface ReaderState {
   renderedUnits: number;
   /** Set once the "no morph coverage" notice has been considered. */
   morphNoteDone?: boolean;
-  /** Chinese translation layer when this work ships translationZh
-   *  (null/absent otherwise — no DOM impact). */
-  tl?: TlLayerHandle | null;
   /** Sidebar translation view handle (null when no translation ships). */
   sb?: SidebarHandle | null;
 }
@@ -263,34 +258,6 @@ async function openReader(
     : `${work.title} · Sanskrit Reader`;
   app.replaceChildren(controls.root);
 
-  // translation toggle only when the catalog ships translations
-  // readerState is assigned below; closure captures live reference for speaker parity
-  let readerState: ReaderState | null = null;
-  if ((work as { translation?: { files?: string[] } }).translation
-    ?.files?.length) {
-    let trView: Awaited<ReturnType<typeof openTranslation>> = null;
-    const trBtn = el("button", "tr-toggle", "English ▭") as HTMLButtonElement;
-    trBtn.type = "button";
-    trBtn.title = "Toggle the English translation drawer";
-    trBtn.setAttribute("aria-pressed", "false");
-    trBtn.addEventListener("click", async () => {
-      if (!trView) {
-        trView = await openTranslation(work!, () => allUnits, readerState?.ctx);
-        if (!trView) return;
-        // keep the toggle honest no matter HOW the drawer closes
-        // (Esc / outside click / sticky close all dispatch "tr-closed")
-        trView.root.addEventListener("tr-closed", () => {
-          trBtn.setAttribute("aria-pressed", "false");
-        });
-        trBtn.setAttribute("aria-pressed", String(trView.isOpen()));
-        return;
-      }
-      trView.toggle();
-      trBtn.setAttribute("aria-pressed", String(trView.isOpen()));
-    });
-    controls.root.appendChild(trBtn);
-  }
-
   const body = el("div");
   // Truly untranslated works (no EN and no zh): say ONCE, up front, that
   // no translation row will appear — instead of silently omitting the
@@ -335,22 +302,13 @@ async function openReader(
     atEnd: false,
     renderedUnits: 0,
   };
-  readerState = state;
   // Chinese translation layer (英译⇄汉译 segmented control): appears ONLY when
   // this catalog work carries translationZh — otherwise setupTranslationLayer
   // returns null and the page renders exactly as before (regression-critical).
-  state.tl = setupTranslationLayer(work, {
-    controls: controls.root,
-    anchor: () => body,
-    getBody: () => state.body,
-  });
-  // 行间 | 侧栏 view-mode control + draggable translation sidebar
-  // (no-ops entirely on works without any translation)
+  // Translation is available only as an opt-in, resizable sidebar.
   state.sb = setupSidebar(work, {
     controls: controls.root,
-    getBody: () => state.body,
     getUnits: () => allUnits,
-    tl: state.tl,
   });
   prev.addEventListener("click", () => void turnPage(state, -1));
   next.addEventListener("click", () => void turnPage(state, +1));
@@ -473,7 +431,6 @@ async function loadNextPage(state: ReaderState): Promise<void> {
     allUnits.push(...batch);
     state.pages.push({ rows: batch.length });
     state.renderedUnits += batch.length;
-    void state.tl?.sync(); // paint/clear zh lines on freshly rendered rows
     void state.sb?.refresh(); // sidebar stream follows newly rendered pages
   } catch (e) {
     state.pager.info.textContent = `Load failed: ${(e as Error).message}`;

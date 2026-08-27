@@ -7,7 +7,7 @@
 // Shared by the reader parse cards + side panel, and the lookup surfaces.
 import { fetchJSON, stripAccents, type Parse } from "./api";
 import { slp1KeyFor, slp1KeyVariants } from "./translit";
-import { GLOSS_MAX_CHARS, clipGloss } from "./group";
+import { GLOSS_MAX_CHARS, compactGloss } from "./group";
 import { compactTagNode, isDevaStr, lemmaDualEl,
   parseDcsFeats } from "./feats";
 
@@ -138,7 +138,9 @@ function memberRow(m: CompoundMember, idx: number, total: number): El {
       gl.remove(); // 无词条 → omit silently, never a loud placeholder
       return;
     }
-    gl.textContent = clipGloss(g, 160);
+    const sense = compactGloss(g, 160);
+    if (!sense) gl.remove();
+    else gl.textContent = `— ${sense}`;
   });
   if (idx < total - 1) row.appendChild(el("span", "comp-plus", "+"));
   return row;
@@ -193,6 +195,8 @@ export function attachMwGloss(
       g.remove();
       return;
     }
-    g.textContent = clipGloss(txt, maxChars);
+    const sense = compactGloss(txt, maxChars);
+    if (!sense) g.remove();
+    else g.textContent = `— ${sense}`;
   });
 }

@@ -15,7 +15,7 @@ import { devToIast, iastToDev, isDevanagari, slp1KeyFor,
 import { featTagEl, lemmaDualEl } from "./feats";
 import { groupHeadEl } from "./group-ui";
 import { MAX_VISIBLE_GROUPS, buildRankedGroups,
-  clipGloss, type ParseGroup } from "./group";
+  compactGloss, type ParseGroup } from "./group";
 import { compoundBlock, mwGlossFor } from "./compound";
 
 type El = HTMLElement;
@@ -116,13 +116,15 @@ function paintGroupCards(
         cell.remove();
         return;
       }
-      const id = clipGloss(t).toLowerCase();
+      const sense = compactGloss(t);
+      if (!sense) { cell.remove(); return; }
+      const id = sense.toLowerCase();
       if (seen.has(id)) {
         cell.remove(); // identical gloss already shown above
         return;
       }
       seen.add(id);
-      cell.textContent = clipGloss(t);
+      cell.textContent = `— ${sense}`;
     });
   });
 }
