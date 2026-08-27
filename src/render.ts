@@ -13,7 +13,7 @@ import { compactFeatsEl, compactTagNode, lemmaDualEl,
 import { groupHeadEl } from "./group-ui";
 import {
   GLOSS_MAX_CHARS, buildRankedGroups,
-  clipGloss, glossIdentity, rankedParses, type ParseGroup,
+  clipGloss, glossIdentity, normLemma, rankedParses, type ParseGroup,
 } from "./group";
 import { attachMwGloss, compoundBlock, firstCompound, membersOf,
   mwGlossFor } from "./compound";
@@ -172,7 +172,14 @@ export function rankParses(
 }
 
 /** Add every candidate lemma of every parsed token to ctx.lemmaFreq.
- *  Call once per freshly loaded batch to grow the work-view signal. */
+ *  Call once per freshly loaded batch to grow the work-view signal.
+ *
+ *  PLAUSIBILITY GATE (gold-reconcile): folded shard keys merge distinct
+ *  words ("atha"->"ata" holds अथ + MW-junk च rows). Counting EVERY
+ *  candidate lemma per occurrence let junk homographs accumulate fake
+ *  frequency and win ranking — a self-reinforcing loop. Count a lemma
+ *  only when it is plausibly a reading of THIS surface: exact match,
+ *  shared raw prefix, or folded-key common prefix >= 2. */
 export function tallyLemmas(ctx: RenderCtx, units: Unit[]): void {
   if (!ctx.lemmaFreq) ctx.lemmaFreq = new Map();
   const freq = ctx.lemmaFreq;
@@ -180,10 +187,48 @@ export function tallyLemmas(ctx: RenderCtx, units: Unit[]): void {
     for (const w of u.words) {
       for (const p of ctx.morph.get(stripAccents(w)) ?? []) {
         const l = stripAccents(p.l);
-        if (l) freq.set(l, (freq.get(l) ?? 0) + 1);
+        if (!l) continue;
+        if (!plausibleLemma(w, l)) continue;
+        freq.set(l, (freq.get(l) ?? 0) + 1);
       }
     }
   }
+}
+
+/** True when `lemma` may be counted as an in-work reading of `word`.
+ *  Only TOTALLY unrelated shapes are excluded (raw and folded common
+ *  prefix both empty — e.g. MW-junk च inside the "atha" bucket). Sandhi
+ *  pairs (तेन↔तद् share just "t") must stay counted: excluding them would
+ *  hand frequency to exactly the junk homographs that share more letters.
+ *  2026-08-27: sandhi fusions (चैव→एव, चैनं→एनद्) were excluded because the
+ *  lemma is a suffix, not a prefix — check suffix + containment as well
+ *  so that trailing constituents get their frequency counted and can win
+ *  ranking (gold-reconcile: चैव WRONG-TOP च vs एव). */
+function plausibleLemma(word: string, lemma: string): boolean {
+  const a = normLemma(stripAccents(word));
+  const b = normLemma(lemma);
+  if (!a || !b || a === b) return true;
+  if (a.startsWith(b) || b.startsWith(a)) return true;
+  if (a.endsWith(b) || b.endsWith(a)) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  const fa = slp1KeyFor(a);
+  const fb = slp1KeyFor(b);
+  let n = Math.min(fa.length, fb.length);
+  let lcp = 0;
+  while (lcp < n && fa[lcp] === fb[lcp]) lcp += 1;
+  if (lcp >= 1) return true;
+  // suffix on SLP1 as well (eva vs ceva)
+  let lcs = 0;
+  while (lcs < n && fa[fa.length - 1 - lcs] === fb[fb.length - 1 - lcs]) lcs += 1;
+  if (lcs >= 2) return true;
+  n = Math.min(a.length, b.length);
+  let rl = 0;
+  while (rl < n && a[rl] === b[rl]) rl += 1;
+  if (rl >= 1) return true;
+  // suffix on raw as well
+  let rs = 0;
+  while (rs < n && a[a.length - 1 - rs] === b[b.length - 1 - rs]) rs += 1;
+  return rs >= 2;
 }
 
 /**

@@ -36,7 +36,7 @@ export interface CompoundMember {
  *     concatenations like पश्य+एताम् or आहुः+त्वाम्+ऋषयः reuse the same `m`
  *     shape, but their first member never carries `Cpd` and their last
  *     member is often an uninflected particle (च/वत्/एव) or a finite verb.
- * Rendering a span as 「复合词成分」 presents ordinary sandhi as a compound —
+ * Rendering a span as a compound —
  * exactly the wrong-content glitch users reported. Only chains passing this
  * test may render as samāsa blocks, everywhere (cards, panel, lookup).
  */
@@ -151,7 +151,7 @@ export function compoundBlock(p: Parse): El | null {
   if (!members) return null;
   const box = el("div", "compound");
   box.appendChild(el("div", "wl-head comp-head",
-    `复合词成分 Samāsa · ${members.length}`));
+    `Samāsa · ${members.length}`));
   members.forEach((m, i) =>
     box.appendChild(memberRow(m, i, members.length)));
   return box;

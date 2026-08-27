@@ -1803,6 +1803,7 @@ body.vocab-highlight .greek-line .w.vk {
   vertical-align: top;
   margin-right: 0.55em;
   max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .unit-scripts .sline.iast-line.w,
 .unit-scripts .sline.iast-line {
@@ -1817,6 +1818,12 @@ body.vocab-highlight .greek-line .w.vk {
    resort. No effect while the token fits — normal words never split. */
 .unit-scripts .sline {
   overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.prose-unit .unit-scripts .wcell,
+.prose-unit .unit-scripts .sline {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .script-pref-controls {
   display: inline-flex;

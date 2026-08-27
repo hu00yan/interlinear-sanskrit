@@ -363,16 +363,20 @@ export function canonicalKeysFor(form: string): Set<string> {
  * form's own canonical spellings — i.e. the shards carry analyses for this
  * EXACT surface shape. Keys produced by the build's longest-resolving-
  * prefix stem fallback fail the membership test here, so their (possibly
- * unrelated) analyses are never rendered. Hyphenated display tokens also
- * accept their members' keys, mirroring emit_surface_index.
+ * unrelated) analyses are never rendered. Boundary-aware: shard key length
+ * must equal the canonical spelling length (exact equality, not prefix
+ * substring). Hyphenated display tokens no longer fall back to member
+ * substring — compound analyses surface via Parse.m member chains only
+ * (compoundBlock), never via head-substring shard lookup.
  */
 export function surfaceKeyTrusted(form: string, key: string): boolean {
   if (!form || !key) return false;
-  if (canonicalKeysFor(form).has(key)) return true;
-  if (form.includes("-")) {
-    return form
-      .split("-")
-      .some((mem) => mem && canonicalKeysFor(mem).has(key));
+  const cands = canonicalKeysFor(form);
+  if (!cands.has(key)) return false;
+  // exact length equality already implied by Set membership, but guard
+  // explicitly against any future prefix-substring looseness
+  for (const cand of cands) {
+    if (cand === key) return true;
   }
   return false;
 }

@@ -108,6 +108,7 @@ const ABBR_CASE: Record<string, string> = {
 const ABBR_GENDER: Record<string, string> = {
   "\u092a\u0941\u0902": "m.",
   "\u0938\u094d\u0930\u0940": "f.",
+  "\u0938\u094d\u0924\u094d\u0930\u0940": "f.",
   "\u0928\u092a\u0941\u0902": "n.",
 };
 const ABBR_NUMBER: Record<string, string> = {

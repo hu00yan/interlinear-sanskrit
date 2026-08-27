@@ -308,21 +308,29 @@ async function surfaceKeyCandidates(
   form: string,
   scope?: string,
 ): Promise<string[]> {
-  if (!/[\u0900-\u097f]/.test(form)) return [stripAccents(form)];
+  const scoped = scopedSlice(scope);
+  if (!/[\u0900-\u097f]/.test(form)) {
+    // Roman-script works (Chāndogya / Kaṭha / Ṛgveda … ship IAST tokens):
+    // resolve through the SAME work slices as Devanagari tokens — they map
+    // every display token to its true shard key ("prāṇa"->"prara"), while
+    // the legacy bare stripped-form probe misses every slp1-folded key
+    // ("bhavati" vs bucket "bavati") and carded only fold-free words.
+    // The stripped probe stays as fallback (slice-miss / scope-less).
+    const viaSlice = await surfaceKeyIn(form, scoped);
+    const direct = stripAccents(form);
+    if (viaSlice && viaSlice !== direct) return [viaSlice, direct];
+    if (viaSlice) return [viaSlice];
+    return [direct];
+  }
   // fetchJSON dedupes concurrent calls for the same path and caches the
   // promise in memory, so per-form calls here cost one network fetch total.
-  const scoped = scopedSlice(scope);
   const whole = await surfaceKeyIn(form, scoped);
-  if (form.includes("-")) {
-    const members = form.split("-").filter(Boolean);
-    const head = members[members.length - 1];
-    if (head && head !== form) {
-      const headKey = await memberSurfaceKey(head, scoped);
-      if (headKey && headKey !== whole) {
-        return [headKey, ...(whole ? [whole] : [])];
-      }
-    }
-  }
+  // Boundary-aware: hyphen head fallback removed — head substring alone must
+  // never match. Compound analyses are surfaced via Parse.m member chains
+  // (compoundBlock), not via shard head lookup. The whole token's exact key
+  // (via whole) is the only candidate; hyphenated display tokens rely on
+  // their full-form shard entry carrying the member chain when the pipeline
+  // emitted one.
   return whole ? [whole] : [];
 }
 
@@ -423,7 +431,16 @@ export async function loadMorph(
       // dedupe at COLLECTION time: identical (lemma, abbr-feats, gloss)
       // triplets inside one shard array never enter the morph map
       if (shard?.[key]?.length) {
-        out.set(form, dedupeParses(shard[key]));
+        const parses = dedupeParses(shard[key]);
+        out.set(form, parses);
+        // Readers look columns up under stripAccents(word) — identity for
+        // Devanagari corpora, LOSSY (NFD-strip + lowercase) for the
+        // roman-script works (Chāndogya / Kaṭha / Ṛgveda … ship IAST
+        // tokens). Keying ONLY by the original form left every diacritic
+        // word cardless there (gold-reconcile FN cluster) while unrelated
+        // ascii tokens collided into the stripped key. Publish BOTH keys.
+        const folded = stripAccents(form);
+        if (folded !== form && !out.has(folded)) out.set(folded, parses);
         break;
       }
     }

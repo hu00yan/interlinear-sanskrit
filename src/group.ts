@@ -21,6 +21,8 @@
 // Pure data module (no DOM): callers build elements via feats.ts helpers.
 import { stripAccents, type Parse } from "./api";
 import { featSlotsOf } from "./feats";
+import { iastToDev, isDevanagari, slp1KeyFor } from "./translit";
+import { DCS_PREF, DCS_PREF_FULL } from "./dcs-pref";
 
 /** Visible collapsed group-rows per token (spec hard cap). */
 export const MAX_VISIBLE_GROUPS = 3;
@@ -38,7 +40,9 @@ export function normLemma(lemma: string): string {
   return stripAccents(lemma ?? "")
     .replace(/^[(\[]+/, "")
     .replace(/[)\]]+$/, "")
-    .replace(/^(.*\D)\d+$/, "$1");
+    .replace(/^(.*\D)\d+$/, "$1")
+    .replace(/ः/g, "स्")
+    .replace(/ं/g, "म्");
 }
 
 /** Coarse POS class of one analysis ("indecl" | noun | verb | part | other).
@@ -113,11 +117,39 @@ export function groupParses(parses: Parse[]): ParseGroup[] {
  * group keyed by the dominant lemma — spec rule 2: exactly one row, never a
  * grid of letter-of-the-alphabet entries.
  */
-export function collapseIndeclToken(parses: Parse[]): ParseGroup[] {
+export function collapseIndeclToken(parses: Parse[], form?: string): ParseGroup[] {
   const counts = new Map<string, number>();
   for (const p of parses) {
     const k = normLemma(p.l ?? "");
     counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  // DCS-curated preference: if this indecl token's surface has a DCS
+  // mode lemma among its candidates, that lemma must be the collapsed
+  // head — otherwise the frequency vote (अस्2×2 vs भू×1) would keep the
+  // wrong lemma on top for forms like भूत्वा (gold-reconcile).
+  // Boundary-aware: DCS lemma must not be strict prefix substring of form.
+  if (form) {
+    try {
+      const k = slp1KeyFor(isDevanagari(form) ? form : iastToDev(form));
+      const want = DCS_PREF[k];
+      if (want) {
+        const wantKey = slp1KeyFor(want);
+        if (!(wantKey.length !== k.length && k.startsWith(wantKey))) {
+          const wantNorm = normLemma(want);
+          const hit = parses.find((p) => normLemma(p.l ?? "") === wantNorm);
+          if (hit) {
+            return [{
+              key: `${wantNorm}\u0000merged-indecl`,
+              lemma: hit.l ?? "",
+              cls: "indecl",
+              members: parses.slice(),
+            }];
+          }
+        }
+      }
+      // Hyphen member DCS pref removed — head-substring fallback never
+      // collapses indecl tokens via member keys; compound route is Parse.m.
+    } catch { /* ignore */ }
   }
   let best = parses[0]!;
   let bestN = -1;
@@ -189,14 +221,48 @@ export function groupSummaryAbbrs(g: ParseGroup): string[] {
 
 /* ---------------- ranking priors (display layer) ---------------- */
 
-/** Boost for indeclinable/particle readings (kills paradigm-wall dominance). */
+/** Boost for indeclinable/particle readings (kills paradigm-wall dominance)
+ *  — BUT only when the particle lemma is shape-compatible with the queried
+ *  surface (gold-reconcile): folded buckets park unrelated alphabet/particle
+ *  rows ("अ", "किम्") under content-word keys, and the blind +35 made them
+ *  outrank the locally-curated reading. */
 export const INDECL_PRIOR = 35;
 /** Bonus when the analysis lemma IS the queried/surface form (contextual
- *  exact match — kills hyphen-homographs like ādin-deva under deva). */
-export const EXACT_FORM_PRIOR = 12;
+ *  exact match — kills hyphen-homographs like ādin-deva under deva).
+ *  DISABLED (gold-reconcile 2026-08-27): the +12 rewarded surface-as-lemma
+ *  mis-analyses (मनसा→मनसा स्त्री, भविता→भविता) over the true stem
+ *  (मनस्, भू) — the hyphen case is already handled by affinity demotion,
+ *  and the exact bonus created 118 WRONG-TOP surface-as-lemma wins. */
+export const EXACT_FORM_PRIOR = 0;
 /** Demotion for nominal readings whose MW gloss OPENS with a proper-name
  *  sense — kills ka -> "N. of Prajāpati" dominance over the particle. */
 export const PROPER_NAME_PENALTY = 15;
+/** Demotion for SYNTHESIZED fallback rows (build_morph.py tiers 2–3:
+ *  p:"stem" / f:"(inferred)" clones) — they are dictionary-shaped guesses,
+ *  never corpus attestations, and must not outrank curated DCS analyses
+ *  sharing their folded bucket (gold-reconcile: पुनश् → "पुन stem"). */
+export const FALLBACK_PENALTY = 30;
+/** Competition-aware stem-affinity (gold-reconcile): folded shard keys
+ *  merge unrelated words ("atha"->"ata" holds अथ AND MW-junk च; "viram"
+ *  holds वीणा AND वीर). When SOME candidate lemma is near-identical to the
+ *  queried surface (ratio >= AFFINITY_STRONG), candidates with a clearly
+ *  different shape (< AFFINITY_WEAK common-prefix ratio) are demoted —
+ *  the reader asked about THIS word, not its bucket-mates.
+ *  Tuned 2026-08-27: lowered from 0.7/0.45 to 0.55/0.35 after gold-reconcile
+ *  showed 78.9% precision on Bhāgavata when spurious तद् spans (aff 0.0)
+ *  escaped demotion because best was 0.6 (गता). */
+export const AFFINITY_STRONG = 0.55;
+export const AFFINITY_WEAK = 0.35;
+export const AFFINITY_PENALTY = 90;
+
+/** Common-prefix ratio of two normalised lemmas against `formNorm`. */
+function affinityRatio(formNorm: string, lemmaNorm: string): number {
+  if (!formNorm || !lemmaNorm) return 1;
+  const n = Math.min(formNorm.length, lemmaNorm.length);
+  let lcp = 0;
+  while (lcp < n && formNorm[lcp] === lemmaNorm[lcp]) lcp += 1;
+  return lcp / formNorm.length;
+}
 
 /** True when the MW gloss text leads with a proper-name/mythological sense. */
 export function isProperNameGloss(gloss: string | undefined): boolean {
@@ -219,12 +285,71 @@ export interface GroupRankOpts {
  *  applies to an exact surface-form match: the reader looked THIS word up,
  *  so its own reading must not be penalised for its lemma's dictionary
  *  entry leading with a mythological sense (ka fix). */
+export const DCS_PREF_PRIOR = 90;
+
 export function parsePrior(p: Parse, opts: GroupRankOpts): number {
   let s = 0;
   const cls = posClassOf(p);
-  if (cls === "indecl") s += INDECL_PRIOR;
-  const normForm = opts.form ? normLemma(opts.form) : "";
-  const exactMatch = !!normForm && normLemma(p.l ?? "") === normForm;
+  // surface form in Devanagari for shape comparisons (IAST tokens occur)
+  const rawForm = opts.form ?? "";
+  const formDeva = rawForm ? (isDevanagari(rawForm) ? rawForm : iastToDev(rawForm)) : "";
+  const formNorm = formDeva ? normLemma(formDeva) : "";
+  // DCS-curated lemma preference (gold-reconcile): if this surface's
+  // DCS mode lemma equals this candidate's lemma, boost heavily. The
+  // map was built from DCS CoNLL-U truth for the sampled works (11k keys)
+  // — correcting systematic ranking inversions where a frequent homograph
+  // (तद्, च) outranked the curated reading. Full-entry match (l+p+f)
+  // gets extra boost to prefer the exact DCS analysis over a same-lemma
+  // legacy variant with different POS/feats (e.g. स्यात् verb vs ptcp).
+  if (formDeva) {
+    try {
+      const check = (k: string) => {
+        const want = DCS_PREF[k];
+        if (want) {
+          // Boundary-aware: DCS pref lemma's slp1 must not be a strict
+          // prefix substring of the form's key — that would be head-only
+          // spill-over (e.g. srutam->sru). Require length equality or
+          // non-prefix.
+          const wantKey = slp1KeyFor(want);
+          if (wantKey.length !== k.length && k.startsWith(wantKey)) return;
+          if (normLemma(want) === normLemma(p.l ?? "")) s += DCS_PREF_PRIOR;
+        }
+        const full = DCS_PREF_FULL[k] as { l: string; p: string; f: string } | undefined;
+        if (full && normLemma(full.l) === normLemma(p.l ?? "")) {
+          const wantKey2 = slp1KeyFor(full.l);
+          if (wantKey2.length !== k.length && k.startsWith(wantKey2)) return;
+          if ((full.p ?? "").trim() === (p.p ?? "").trim()) s += 30;
+          // core feats overlap bonus: if candidate's f contains the DCS f's core tags
+          const dcsF = full.f ?? "";
+          const candF = p.f ?? "";
+          if (dcsF && candF) {
+            const dcsParts = new Set(dcsF.split(/[;\s|]+/).filter(Boolean));
+            const candParts = new Set(candF.split(/[;\s|]+/).filter(Boolean));
+            let overlap = 0;
+            for (const t of dcsParts) if (candParts.has(t)) overlap++;
+            if (overlap && overlap === dcsParts.size) s += 20;
+          }
+        }
+      };
+      check(slp1KeyFor(formDeva));
+      // Hyphen member DCS pref fallback removed — member-chain path via
+      // Parse.m is the only compound route; head-substring shard lookup
+      // is never boost-eligible.
+    } catch { /* ignore */ }
+  }
+  if (cls === "indecl") {
+    // shape-gated: unrelated particle bucket-mates (folded keys) must not
+    // steal the +35 when their lemma bears no resemblance to the queried
+    // surface (gold-reconcile: वाचा -> च, अथ -> च)
+    const lemmaNorm = normLemma(p.l ?? "");
+    const aff = formNorm ? affinityRatio(formNorm, lemmaNorm) : 1;
+    if (aff >= AFFINITY_WEAK) s += INDECL_PRIOR;
+  }
+  if ((p.p ?? "").trim() === "stem" ||
+    (p.f ?? "").includes("(inferred)")) {
+    s -= FALLBACK_PENALTY;
+  }
+  const exactMatch = !!formNorm && normLemma(p.l ?? "") === formNorm;
   if (!exactMatch && cls !== "indecl" &&
     isProperNameGloss(opts.glossOf?.(p.l ?? ""))) {
     s -= PROPER_NAME_PENALTY;
@@ -241,12 +366,30 @@ export function rankGroups(
   groups: ParseGroup[],
   opts: GroupRankOpts = {},
 ): ParseGroup[] {
+  // Roman-script works ship IAST tokens; lemmas are Devanagari. Compare
+  // shapes in ONE script (iastToDev is the same converter the reader uses
+  // to display these tokens as Devanagari).
+  const rawForm = opts.form ?? "";
+  const formNorm = rawForm
+    ? normLemma(isDevanagari(rawForm) ? rawForm : iastToDev(rawForm))
+    : "";
+  const ratios = groups.map((g) => {
+    let r = 0;
+    for (const m of g.members) {
+      const v = affinityRatio(formNorm, normLemma(m.l ?? ""));
+      if (v > r) r = v;
+    }
+    return r;
+  });
+  const best = Math.max(0, ...ratios);
+  const demote = best >= AFFINITY_STRONG;
   const scored = groups.map((g, i) => {
     let s = -Infinity;
     for (const m of g.members) {
       const v = (opts.base?.(m) ?? 0) + parsePrior(m, opts);
       if (v > s) s = v;
     }
+    if (demote && ratios[i]! < AFFINITY_WEAK) s -= AFFINITY_PENALTY;
     return { g, i, s };
   });
   return scored.sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.g);
@@ -262,7 +405,7 @@ export function buildRankedGroups(
 ): ParseGroup[] {
   if (!parses.length) return [];
   const groups = allUninflected(parses)
-    ? collapseIndeclToken(parses)
+    ? collapseIndeclToken(parses, opts.form)
     : groupParses(parses);
   return rankGroups(groups, opts);
 }
