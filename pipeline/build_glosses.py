@@ -3,10 +3,12 @@
 
 Input : .cache-dcs/mw.txt  (Cologne digitization, SLP1-native, open data)
         public/data/morph/*.json (slp1-keyed, from build_morph.py)
-Output: public/data/gloss/{a-z}.json keyed slp1_key(headword) -> {u,g}
-        morph entries gain "g": first MW sense truncated to 200 chars.
+Output: public/data/gloss/{a-z}.json keyed by case-preserving SLP1 headword
+        -> {u,g}; morph entries gain the same compact `g` field.
 
-MW headwords are SLP1 already -> zero-conversion alignment with our keys.
+SLP1 is case-sensitive: `Darma` is dharma while `darma` is a different
+headword. Never case-fold a dictionary key. Shard filenames are lower-case,
+but the keys inside each JSON object retain canonical SLP1 exactly.
 
 Extraction rules (audit fix — previously ~77% of headwords were silently
 dropped and survivors were polluted):
@@ -19,11 +21,9 @@ dropped and survivors were polluted):
   * Cross-reference-only lines ("&c. See pp...", "See p. N, col. M") are
     skipped in favour of the first semantic line; trailing "&c." /
     "See pp..." tails are cut from the kept line.
-  * SHORT gloss selection: lowercased keys merge several printed MW
-    lemmas, so the dominant reading comes from the LARGEST entry block
-    (entry opener + its '<e>NNNA' continuations); within it the longest
-    sensible English candidate wins with scripture markers penalized and
-    (...) / [...] asides stripped from the stored gloss.
+  * SHORT gloss selection takes the first substantive lexical sense and
+    removes citations, examples, bibliographic abbreviations and grammar
+    apparatus. It is capped at 90 characters for inline display.
 """
 import json
 import os
@@ -32,7 +32,7 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "pipeline"))
-from sanscript import transliterate, SLP1, DEVA  # noqa: E402
+from sanscript import transliterate, SLP1, IAST, DEVA  # noqa: E402
 
 MW = os.path.join(HERE, ".cache-dcs", "mw.txt")
 MORPH_DIR = os.path.join(HERE, "public", "data", "morph")
@@ -46,11 +46,31 @@ XREF_TAIL = re.compile(                        # trailing cross-ref tail
     r"\s*(?:,\s*)?&c\.?(?:\s*(?:see|pp?\.).*)?$|\s+see\s+(?:pp?\.|under).*$"
     r"|\s*,?\s*[Ss]ee\s+.*$",                  # ', see so-and-so' pointers
     re.I)
-MAX_GLOSS = 200
+MAX_GLOSS = 90
+VALID_KEY = re.compile(r"[A-Za-z~]+$")
+
+
+def mw_key(text: str) -> str:
+    """One strict SLP1 key for MW and morphology lemmas.
+
+    This deliberately has no case-folding or stem/prefix fallback: SLP1
+    capitals encode different phonemes. It only removes editorial accent
+    marks which are not part of Cologne's `<k1>` search-key alphabet.
+    """
+    text = text.strip().replace("/", "").replace("\\", "")
+    if any("\u0900" <= c <= "\u097f" for c in text):
+        text = transliterate(text, DEVA, SLP1)
+    elif any(c in text for c in "āīūṛṝḷḹṅñṭḍṇśṣṃṁḥ"):
+        text = transliterate(text, IAST, SLP1)
+    return text
 
 
 def clean(line: str) -> str:
-    return re.sub(r"\s+", " ", TAG.sub(" ", line)).strip()
+    # MW's div markers separate lexical senses within very large verb entries.
+    line = re.sub(r'<div n="to"\s*/>', "\n", line)
+    line = re.sub(r"<(?:ls|s|s1|etym|gk)\b[^>]*>.*?</(?:ls|s|s1|etym|gk)>",
+                  " ", line)
+    return re.sub(r"[ \t]+", " ", TAG.sub(" ", line)).strip()
 
 
 def sense_lines(body_lines):
@@ -73,14 +93,40 @@ def sense_lines(body_lines):
     return out
 
 
-def is_sensible(t: str) -> bool:
-    """>20 chars of mostly-English containing at least one vowel-run word."""
-    if len(t) <= 20 or " " not in t:
-        return False
-    ok = sum(c.isalpha() or c in ",-()'" or c.isspace() for c in t)
-    if ok / len(t) < 0.75:
-        return False
-    return bool(re.search(r"[aeiou]{2}", t.lower()))
+GRAMMAR_ONLY = re.compile(
+    r"^(?:[IVXLC]+\)?\s*)?(?:Ved\.|Class\.|cl\.|[PĀ]\.|Impv\.|Subj\.|Pot\.|"
+    r"impf\.|aor\.|perf\.|pr\. p\.|Caus\.|Desid\.|Intens\.|nom\.|acc\.|"
+    r"du\.|sg\.|pl\.).*", re.I)
+GRAMMAR_FRAGMENT = re.compile(
+    r"^(?:prec|imperf|aor|perf|part|nom|acc|dat|abl|gen|loc|voc|sg|du|pl)\.?(?:\s|$)",
+    re.I)
+NON_SENSE_PREFIX = re.compile(
+    r"^(?:for\s+(?:[PĀ]\.|Ā\.|[A-Z][a-z]+)|(?:\d+(?:st|nd|rd|th)\s+)?"
+    r"(?:fut|pres|aor|perf|form)|with\s+prepositions|cf\.)\b", re.I)
+CITATION_TAIL = re.compile(
+    r"(?:\s*[;,]\s*(?:RV|AV|VS|TS|ŚBr|MBh|BhP|R|Mn|Pāṇ|Kāś|Śak|Hit|"
+    r"Kāv|L|Sch|ib|cf)\.[^;,.]*[;,.]?)+$", re.I)
+LEADING_META = re.compile(
+    r"^(?:(?:m|f|n|mf|mfn|ind|adj|adv)\.?\s+|(?:only|especially)\s+ifc\.\s+)+",
+    re.I)
+
+
+def compact_gloss(t: str):
+    """Return one readable lexical sense, never an MW grammar/citation essay."""
+    t = tidy(cut_tail(t))
+    t = HOM_NOISE.sub("", t).strip(" ¦")
+    t = LEADING_META.sub("", t)
+    t = CITATION_TAIL.sub("", t).strip(" ,;.")
+    t = re.split(r"\s*(?:&c\.|&|:)\s*", t, maxsplit=1)[0].strip(" ,;.")
+    if (GRAMMAR_ONLY.match(t) or GRAMMAR_FRAGMENT.match(t) or
+            NON_SENSE_PREFIX.match(t) or "˚" in t or
+            len(t) < 3):
+        return None
+    words = re.findall(r"[A-Za-z]{2,}", t)
+    # A lone “Ved.”/“Class.” label is neither a sense nor useful gloss.
+    if len(words) < 2:
+        return None
+    return truncate(t)
 
 
 def cut_tail(t: str) -> str:
@@ -128,60 +174,15 @@ def tidy(t: str) -> str:
 
 
 def pick_gloss(records):
-    """Best SHORT gloss for one headword key.
-
-    Lowercased SLP1 keys merge several printed MW lemmas/homonyms, so the
-    dominant reading is taken from the LARGEST entry block (a block is an
-    entry-opening record plus its '<e>NNNA' continuations). MW orders
-    senses by priority, so the block's FIRST semantic line wins once
-    (...) / [...] asides are stripped ('that which is established or firm,
-    steadfast decree, statute, ordinance, law' — not 'a thing', not 'Law
-    personified as Indra, ŚBr. &c.'); if it is too fragmentary we fall
-    back to the block's longest sensible line, then to plain first text.
-    """
-    def candidates(recs):
-        """(scored sensibles, first non-xref raw line) for these records."""
-        scored, first_raw = [], None
-        for rec in recs:
-            for t in rec["lines"]:
-                if XREF_ONLY.match(t):
-                    continue
-                t2 = cut_tail(t)
-                if not t2 or XREF_ONLY.match(t2):
-                    continue
-                if first_raw is None:
-                    first_raw = t2
-                stored = tidy(t2)
-                if is_sensible(stored):
-                    scored.append((definitional_score(stored), stored))
-        return scored, first_raw
-
-    # split records into entry blocks; the largest belongs to the dominant
-    # lemma sharing this key (dharma-the-law vs darma 'a thing', etc.)
-    blocks, cur = [], []
+    """First substantive English sense in MW order, across continuation records."""
     for rec in records:
-        if rec["primary"] and cur:
-            blocks.append(cur)
-            cur = []
-        cur.append(rec)
-    if cur:
-        blocks.append(cur)
-
-    if blocks:
-        biggest = max(blocks, key=len)
-        _, block_first = candidates(biggest[:1])   # sense-1 line only
-        if block_first:
-            stored = tidy(block_first)
-            if is_sensible(stored):
-                return truncate(stored)
-        pool, _ = candidates(biggest)              # else best of the block
-        if pool:
-            return truncate(max(pool, key=lambda x: x[0])[1])
-
-    # fallback: first plain-text line anywhere under this key
-    _, any_first = candidates(records)
-    if any_first:
-        return truncate(tidy(any_first))
+        for line in rec["lines"]:
+            for sense in line.split("\n"):
+                if not sense or XREF_ONLY.match(sense):
+                    continue
+                gloss = compact_gloss(sense)
+                if gloss:
+                    return gloss
     return None
 
 
@@ -207,7 +208,9 @@ def parse_mw():
         if cur_key and cur_body:
             lines = sense_lines(cur_body)
             if lines:
-                by_key.setdefault(cur_key.lower(), []).append(
+                key = mw_key(cur_key)
+                if VALID_KEY.fullmatch(key):
+                    by_key.setdefault(key, []).append(
                     {"primary": cur_primary, "lines": lines})
 
     for line in open(MW, encoding="utf-8"):
@@ -248,9 +251,9 @@ def main() -> None:
     os.makedirs(OUT_DIR, exist_ok=True)
     shards: dict[str, dict] = {}
     for k in sorted(gloss):
-        if not k or not re.fullmatch(r"[a-z~]+", k):
+        if not VALID_KEY.fullmatch(k):
             continue
-        shards.setdefault(k[0], {})[k] = gloss[k]
+        shards.setdefault(k[0].lower(), {})[k] = gloss[k]
     for f in os.listdir(OUT_DIR):
         if f.endswith(".json"):
             os.remove(os.path.join(OUT_DIR, f))
@@ -274,14 +277,19 @@ def main() -> None:
         for key, entries in data.items():
             for e in entries:
                 lemma = e.get("l") or ""
-                lk = None
-                if any("\u0900" <= c <= "\u097f" for c in lemma):
-                    lk = transliterate(lemma, DEVA, SLP1).lower()
-                g = gloss.get(lk or "") or gloss.get(key)
-                if g and not e.get("g"):
-                    e["g"] = g["g"]
+                lk = mw_key(lemma)
+                g = gloss.get(lk)
+                old = e.get("g")
+                if g:
+                    if old != g["g"]:
+                        e["g"] = g["g"]
+                        changed = True
+                        joined += 1
+                elif old:
+                    # `g` is source-derived and must never survive under a
+                    # different, case-folded SLP1 headword.
+                    del e["g"]
                     changed = True
-                    joined += 1
         if changed:
             with open(p, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
